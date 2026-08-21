@@ -3,80 +3,134 @@ import { urlSchema } from "../../lib/sanitize";
 import type { BlockType } from "../../db/types";
 
 /**
+ * Campos de aparência por bloco (editor).
+ * `.passthrough()` nos schemas abaixo preserva esses campos no JSON.
+ */
+const blockLookFields = {
+  textColor: z.string().trim().max(32).optional(),
+  backgroundColor: z.string().trim().max(32).optional(),
+  borderColor: z.string().trim().max(32).optional(),
+  align: z.enum(["left", "right", "center"]).optional(),
+  width: z.enum(["fit", "full"]).optional(),
+  pulse: z.boolean().optional(),
+  fontSize: z.enum(["sm", "md", "lg", "xl"]).optional(),
+  avatarSize: z.enum(["xs", "sm", "md", "lg", "xl", "2xl"]).optional(),
+  avatarShape: z.enum(["circle", "rounded", "square"]).optional(),
+  radius: z.enum(["none", "sm", "md", "lg", "pill"]).optional(),
+  padding: z.enum(["sm", "md", "lg"]).optional(),
+  shadow: z.enum(["none", "soft"]).optional(),
+};
+
+/**
  * Cada tipo de bloco tem seu proprio formato de `content`.
  * Isso e o "contrato" que o editor do frontend precisa seguir.
  */
 export const blockContentSchemas = {
-  HERO: z.object({
-    name: z.string().trim().max(80).optional(),
-    headline: z.string().trim().max(120).optional(),
-    bio: z.string().trim().max(500).optional(),
-    avatarUrl: urlSchema.optional(),
-    location: z.string().trim().max(120).optional(),
-  }),
+  HERO: z
+    .object({
+      name: z.string().trim().max(80).optional(),
+      headline: z.string().trim().max(120).optional(),
+      bio: z.string().trim().max(500).optional(),
+      avatarUrl: urlSchema.optional(),
+      location: z.string().trim().max(120).optional(),
+      ...blockLookFields,
+    })
+    .passthrough(),
 
-  CTA_BUTTON: z.object({
-    label: z.string().trim().min(1).max(60),
-    url: urlSchema,
-    style: z.enum(["primary", "secondary", "outline"]).default("primary"),
-  }),
+  CTA_BUTTON: z
+    .object({
+      label: z.string().trim().min(1).max(60),
+      url: urlSchema,
+      style: z.enum(["primary", "secondary", "outline"]).default("primary"),
+      ...blockLookFields,
+    })
+    .passthrough(),
 
-  LINK_BUTTON: z.object({
-    label: z.string().trim().min(1).max(60),
-    url: urlSchema,
-    icon: z.string().trim().max(40).optional(),
-  }),
+  LINK_BUTTON: z
+    .object({
+      label: z.string().trim().min(1).max(60),
+      url: urlSchema,
+      icon: z.string().trim().max(40).optional(),
+      ...blockLookFields,
+    })
+    .passthrough(),
 
-  WHATSAPP: z.object({
-    // apenas digitos, com DDI: 5561999999999
-    phone: z.string().regex(/^\d{10,15}$/, "Telefone deve conter apenas numeros com DDI e DDD"),
-    message: z.string().trim().max(300).optional(),
-    label: z.string().trim().max(60).optional(),
-  }),
-
-  SOCIAL: z.object({
-    items: z
-      .array(
-        z.object({
-          network: z.enum([
-            "instagram",
-            "facebook",
-            "tiktok",
-            "youtube",
-            "linkedin",
-            "x",
-            "site",
-          ]),
-          url: urlSchema,
+  WHATSAPP: z
+    .object({
+      // Permite rascunho vazio/parcial no editor; wa.me usa 10–15 com DDI.
+      phone: z
+        .union([z.string(), z.number()])
+        .transform((value) => String(value).replace(/\D/g, "").slice(0, 15))
+        .refine((value) => /^\d{0,15}$/.test(value), {
+          message: "Telefone deve conter apenas numeros (com DDI)",
         }),
-      )
-      .min(1, "Adicione pelo menos uma rede social")
-      .max(10),
-  }),
+      message: z.string().trim().max(300).optional(),
+      label: z.string().trim().max(60).optional(),
+      ...blockLookFields,
+    })
+    .passthrough(),
+
+  SOCIAL: z
+    .object({
+      items: z
+        .array(
+          z.object({
+            network: z.enum([
+              "instagram",
+              "facebook",
+              "tiktok",
+              "youtube",
+              "linkedin",
+              "x",
+              "site",
+            ]),
+            url: urlSchema,
+            label: z.string().trim().max(60).optional(),
+          }),
+        )
+        .min(1, "Adicione pelo menos uma rede social")
+        .max(10),
+      layout: z.enum(["icons", "buttons"]).optional(),
+      ...blockLookFields,
+    })
+    .passthrough(),
 
   // Os itens ficam nas tabelas ServiceItem / Testimonial.
-  SERVICES: z.object({
-    heading: z.string().trim().max(80).default("Servicos"),
-  }),
+  SERVICES: z
+    .object({
+      heading: z.string().trim().max(80).default("Servicos"),
+      ...blockLookFields,
+    })
+    .passthrough(),
 
-  TESTIMONIALS: z.object({
-    heading: z.string().trim().max(80).default("Depoimentos"),
-  }),
+  TESTIMONIALS: z
+    .object({
+      heading: z.string().trim().max(80).default("Depoimentos"),
+      ...blockLookFields,
+    })
+    .passthrough(),
 
-  LOCATION: z.object({
-    address: z.string().trim().min(3).max(200),
-    mapsUrl: urlSchema.optional(),
-    label: z.string().trim().max(60).optional(),
-  }),
+  LOCATION: z
+    .object({
+      address: z.string().trim().min(3).max(200),
+      mapsUrl: urlSchema.optional(),
+      url: urlSchema.optional(),
+      label: z.string().trim().max(60).optional(),
+      ...blockLookFields,
+    })
+    .passthrough(),
 } satisfies Record<BlockType, z.ZodTypeAny>;
 
 export const blockTypeSchema = z.enum(
   Object.keys(blockContentSchemas) as [BlockType, ...BlockType[]],
 );
 
+/** Titulo humano; 512 cobre titulos antigos que empacotavam look no campo. */
+const blockTitleSchema = z.string().trim().max(512).nullish();
+
 export const createBlockSchema = z.object({
   type: blockTypeSchema,
-  title: z.string().trim().max(80).nullish(),
+  title: blockTitleSchema,
   content: z.unknown().optional(),
   sortOrder: z.number().int().min(0).optional(),
   isVisible: z.boolean().optional(),
@@ -84,7 +138,7 @@ export const createBlockSchema = z.object({
 
 export const updateBlockSchema = z
   .object({
-    title: z.string().trim().max(80).nullish(),
+    title: blockTitleSchema,
     // content e substituido por inteiro (nao e merge parcial)
     content: z.unknown().optional(),
     sortOrder: z.number().int().min(0).optional(),

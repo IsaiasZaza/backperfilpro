@@ -45,7 +45,7 @@ export async function isUsernameAvailable(username: string, ignoreProfileId?: st
   if (isReservedUsername(username)) return false;
 
   const existing = await queryOne<{ id: string }>(
-    `SELECT id FROM profiles WHERE username = $1`,
+    `SELECT id FROM profiles WHERE LOWER(username) = LOWER($1)`,
     [username],
   );
 
@@ -92,7 +92,7 @@ export async function updateProfile(userId: string, input: z.infer<typeof update
     bio: rest.bio !== undefined ? rest.bio : profile.bio,
     avatarUrl: rest.avatarUrl !== undefined ? rest.avatarUrl : profile.avatarUrl,
     location: rest.location !== undefined ? rest.location : profile.location,
-    theme: theme ?? profile.theme,
+    theme: theme ? { ...profile.theme, ...theme } : profile.theme,
     username: (usernameData as { username?: string }).username ?? profile.username,
     usernameChangesAfterPublish:
       (usernameData as { usernameChangesAfterPublish?: number }).usernameChangesAfterPublish ??
@@ -179,7 +179,7 @@ export async function unpublishProfile(userId: string) {
 
 export async function getPublicProfile(username: string) {
   const profile = await queryOne<Profile>(
-    `SELECT * FROM profiles WHERE username = $1 AND status = 'PUBLISHED'`,
+    `SELECT * FROM profiles WHERE LOWER(username) = $1 AND status = 'PUBLISHED'`,
     [username.toLowerCase()],
   );
   if (!profile) throw notFound("Pagina nao encontrada", "PAGE_NOT_FOUND");

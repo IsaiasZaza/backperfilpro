@@ -66,7 +66,26 @@ const profileSchema = {
     bio: { type: "string", nullable: true },
     avatarUrl: { type: "string", nullable: true },
     location: { type: "string", nullable: true, example: "Brasilia - DF" },
-    theme: { type: "object", example: { primaryColor: "#7C3AED", buttonStyle: "pill" } },
+    theme: {
+      type: "object",
+      example: {
+        primaryColor: "#7C3AED",
+        buttonStyle: "pill",
+        atmosphere: "none",
+      },
+      properties: {
+        primaryColor: { type: "string", example: "#7C3AED" },
+        backgroundColor: { type: "string", example: "#0F172A" },
+        textColor: { type: "string", example: "#F8FAFC" },
+        buttonStyle: { type: "string", enum: ["rounded", "pill", "square"] },
+        font: { type: "string", enum: ["sans", "serif", "mono"] },
+        atmosphere: {
+          type: "string",
+          enum: ["none", "claw", "comic", "arc", "symbiote", "storm", "inferno", "cosmic"],
+        },
+      },
+    },
+
     status: { type: "string", enum: ["DRAFT", "PUBLISHED"] },
     publishedAt: { type: "string", format: "date-time", nullable: true },
     canChangeUsername: { type: "boolean" },
@@ -507,7 +526,12 @@ export const openapiDocument = {
             location: { type: "string", example: "Brasilia - DF" },
             theme: {
               type: "object",
-              example: { primaryColor: "#7C3AED", buttonStyle: "pill", font: "sans" },
+              example: {
+                primaryColor: "#7C3AED",
+                buttonStyle: "pill",
+                font: "sans",
+                atmosphere: "claw",
+              },
             },
           },
         }),

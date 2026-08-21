@@ -29,6 +29,9 @@ export const themeSchema = z.object({
     .optional(),
   buttonStyle: z.enum(["rounded", "pill", "square"]).optional(),
   font: z.enum(["sans", "serif", "mono"]).optional(),
+  atmosphere: z
+    .enum(["none", "claw", "comic", "arc", "symbiote", "storm", "inferno", "cosmic"])
+    .optional(),
 });
 
 export const updateProfileSchema = z
