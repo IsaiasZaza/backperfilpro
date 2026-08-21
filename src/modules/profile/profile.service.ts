@@ -4,6 +4,7 @@ import type { Block, Profile, ServiceItem, Testimonial } from "../../db/types";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { isReservedUsername } from "../../lib/username";
+import { getSubscriptionByUserId, grantsAccess } from "../billing/billing.service";
 import type { updateProfileSchema } from "./profile.schemas";
 
 export async function getProfileByUserId(userId: string) {
@@ -14,7 +15,7 @@ export async function getProfileByUserId(userId: string) {
 
 export async function getFullProfileByUserId(userId: string) {
   const profile = await getProfileByUserId(userId);
-  const [blocks, services, testimonials] = await Promise.all([
+  const [blocks, services, testimonials, subscription] = await Promise.all([
     query<Block>(
       `SELECT * FROM blocks WHERE "profileId" = $1 ORDER BY "sortOrder" ASC`,
       [profile.id],
@@ -27,10 +28,13 @@ export async function getFullProfileByUserId(userId: string) {
       `SELECT * FROM testimonials WHERE "profileId" = $1 ORDER BY "sortOrder" ASC`,
       [profile.id],
     ),
+    getSubscriptionByUserId(userId),
   ]);
 
   return {
     ...profile,
+    plan: subscription?.plan ?? null,
+    showBranding: subscription?.plan !== "PREMIUM",
     blocks: blocks.map(mapBlock),
     services,
     testimonials,
@@ -180,6 +184,11 @@ export async function getPublicProfile(username: string) {
   );
   if (!profile) throw notFound("Pagina nao encontrada", "PAGE_NOT_FOUND");
 
+  const subscription = await getSubscriptionByUserId(profile.userId);
+  if (!grantsAccess(subscription)) {
+    throw notFound("Pagina nao encontrada", "PAGE_NOT_FOUND");
+  }
+
   const mapped = mapProfile(profile);
   const [blocks, services, testimonials] = await Promise.all([
     query<Block>(
@@ -198,6 +207,8 @@ export async function getPublicProfile(username: string) {
 
   return {
     ...mapped,
+    plan: subscription!.plan,
+    showBranding: subscription!.plan !== "PREMIUM",
     blocks: blocks.map(mapBlock),
     services,
     testimonials,

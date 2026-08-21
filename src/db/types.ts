@@ -12,12 +12,42 @@ export type BlockType =
   | "TESTIMONIALS"
   | "LOCATION";
 
+export type Plan = "PRO" | "PREMIUM";
+
+export type SubscriptionStatus =
+  | "INCOMPLETE"
+  | "INCOMPLETE_EXPIRED"
+  | "TRIALING"
+  | "ACTIVE"
+  | "PAST_DUE"
+  | "CANCELED"
+  | "UNPAID"
+  | "PAUSED";
+
 export type User = {
   id: string;
   name: string;
   email: string;
   passwordHash: string;
   emailVerifiedAt: Date | null;
+  stripeCustomerId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type Subscription = {
+  id: string;
+  userId: string;
+  plan: Plan;
+  status: SubscriptionStatus;
+  stripeSubscriptionId: string | null;
+  stripePriceId: string | null;
+  trialUsed: boolean;
+  trialEndsAt: Date | null;
+  currentPeriodStart: Date | null;
+  currentPeriodEnd: Date | null;
+  cancelAtPeriodEnd: boolean;
+  canceledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };

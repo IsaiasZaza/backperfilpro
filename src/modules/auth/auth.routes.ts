@@ -16,28 +16,27 @@ export const authRoutes = Router();
 
 authRoutes.post("/register", authLimiter, async (req, res) => {
   const input = registerSchema.parse(req.body);
-  const { user, accessToken, refreshToken } = await authService.register(input);
+  const payload = await authService.register(input);
 
-  setAuthCookies(res, accessToken, refreshToken);
-  return ok(res, { user, accessToken }, 201);
+  return ok(res, payload, 201);
 });
 
 authRoutes.post("/login", authLimiter, async (req, res) => {
   const input = loginSchema.parse(req.body);
-  const { user, accessToken, refreshToken } = await authService.login(input);
+  const { user, accessToken, refreshToken, subscription } = await authService.login(input);
 
   setAuthCookies(res, accessToken, refreshToken);
-  return ok(res, { user, accessToken });
+  return ok(res, { user, accessToken, subscription });
 });
 
 authRoutes.post("/refresh", async (req, res) => {
   const token = (req.cookies?.[REFRESH_COOKIE] as string | undefined) ?? req.body?.refreshToken;
   if (!token) throw unauthorized("Refresh token nao informado", "MISSING_REFRESH_TOKEN");
 
-  const { user, accessToken, refreshToken } = await authService.refresh(token);
+  const { user, accessToken, refreshToken, subscription } = await authService.refresh(token);
 
   setAuthCookies(res, accessToken, refreshToken);
-  return ok(res, { user, accessToken });
+  return ok(res, { user, accessToken, subscription });
 });
 
 authRoutes.post("/logout", async (req, res) => {

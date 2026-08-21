@@ -24,6 +24,12 @@ export const unauthorized = (message = "Nao autenticado", code = "UNAUTHORIZED")
 export const forbidden = (message = "Acesso negado", code = "FORBIDDEN") =>
   new AppError(403, code, message);
 
+export const paymentRequired = (
+  message = "Assinatura necessaria",
+  code = "SUBSCRIPTION_REQUIRED",
+  details?: unknown,
+) => new AppError(402, code, message, details);
+
 export const notFound = (message = "Recurso nao encontrado", code = "NOT_FOUND") =>
   new AppError(404, code, message);
 

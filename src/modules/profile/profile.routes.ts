@@ -3,6 +3,7 @@ import { badRequest } from "../../lib/errors";
 import { ok } from "../../lib/http";
 import { avatarUpload, buildAvatarUrl } from "../../lib/upload";
 import { authenticate } from "../../middlewares/authenticate";
+import { requireActiveSubscription } from "../../middlewares/require-subscription";
 import { loadProfile } from "../../middlewares/load-profile";
 import { blocksRoutes } from "../blocks/blocks.routes";
 import { servicesRoutes } from "../services/services.routes";
@@ -14,7 +15,7 @@ import { updateProfileSchema } from "./profile.schemas";
 /** Montado em /me/profile. Tudo aqui exige login e usa somente o perfil do proprio usuario. */
 export const profileRoutes = Router();
 
-profileRoutes.use(authenticate, loadProfile);
+profileRoutes.use(authenticate, requireActiveSubscription, loadProfile);
 
 profileRoutes.get("/", async (req, res) => {
   return ok(res, presentProfile(req.profile!));
@@ -39,7 +40,17 @@ profileRoutes.post("/unpublish", async (req, res) => {
 /** Mesmo shape da pagina publica, mas funciona com o perfil ainda em DRAFT. */
 profileRoutes.get("/preview", async (req, res) => {
   const profile = await profileService.getFullProfileByUserId(req.user!.id);
-  return ok(res, presentPublicPage(profile, false));
+  return ok(
+    res,
+    presentPublicPage(
+      {
+        ...profile,
+        plan: req.subscription?.plan ?? profile.plan,
+        showBranding: req.subscription?.plan !== "PREMIUM",
+      },
+      false,
+    ),
+  );
 });
 
 profileRoutes.post("/avatar", avatarUpload, async (req, res) => {

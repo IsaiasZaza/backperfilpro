@@ -73,22 +73,31 @@ Autenticação aceita:
   "name": "Maria Oliveira",
   "email": "maria@demo.com",
   "password": "Demo1234!",
-  "confirmPassword": "Demo1234!"
+  "confirmPassword": "Demo1234!",
+  "plan": "PRO"
 }
 ```
-Resposta (`201`): `{ user, accessToken }` + cookies.
+`plan` e obrigatorio: `PRO` ou `PREMIUM`.
+
+Resposta (`201`): `{ user, checkoutUrl, sessionId, plan, trialGranted, trialDays }` — **sem accessToken**.
+
+Redirecione o usuario para `checkoutUrl` (Stripe Checkout, 7 dias gratis na primeira assinatura). Depois que a Stripe confirmar, chame `/auth/login`.
+
+Se o checkout for abandonado, use `POST /billing/checkout` com e-mail, senha e plano.
 
 ### POST `/auth/login`
 ```json
 { "email": "maria@demo.com", "password": "Demo1234!" }
 ```
-Resposta: `{ user, accessToken }` + cookies.
+Resposta: `{ user, accessToken, subscription }` + cookies.
+
+**402 `SUBSCRIPTION_REQUIRED`** se nao houver plano ativo (trial, active ou past_due). Nesse caso mande a pessoa para o checkout.
 
 ### POST `/auth/logout`
 Encerra sessão e limpa cookies.
 
 ### POST `/auth/refresh`
-Renova tokens (usa cookie `pp_refresh_token` ou body `{ "refreshToken": "..." }`).
+Renova tokens. Tambem exige plano ativo (402 se a assinatura caiu).
 
 ### POST `/auth/forgot-password`
 ```json
@@ -106,7 +115,41 @@ Em dev o link aparece no terminal do backend.
 ```
 
 ### GET `/auth/me`
-Usuário logado + resumo do profile.
+Usuário logado + resumo do profile + `subscription`.
+
+---
+
+## 3.1 Billing (Stripe)
+
+Guia completo para montar as telas no Next.js: **[FRONTEND-PLANOS.md](./FRONTEND-PLANOS.md)** (rotas, tipos, 402, checkout, trial, portal).
+
+Planos: **Pro R$ 20,00/mes** e **Premium R$ 39,00/mes**, ambos com **7 dias gratis** na primeira assinatura. O cartao e coletado no checkout; a Stripe cobra quando o trial acaba.
+
+| Método | Rota | Auth | Uso |
+|---|---|---|---|
+| GET | `/billing/plans` | nao | Catalogo dos planos |
+| POST | `/billing/checkout` | nao | `{ email, password, plan }` → `{ checkoutUrl }` |
+| POST | `/billing/confirm-session` | nao | `{ sessionId }` sincroniza se o webhook atrasar |
+| GET | `/billing/subscription` | sim | Assinatura atual |
+| POST | `/billing/change-plan` | sim + plano | `{ plan: "PREMIUM" }` (prorata) |
+| POST | `/billing/cancel` | sim + plano | Cancela no fim do periodo |
+| POST | `/billing/resume` | sim + plano | Desfaz o cancelamento |
+| POST | `/billing/portal` | sim | `{ portalUrl }` Customer Portal (cartao/faturas) |
+
+Apos o checkout, a Stripe redireciona para:
+
+`{FRONTEND_URL}/login?checkout=success&session_id={CHECKOUT_SESSION_ID}`
+
+Fluxo sugerido no FE:
+
+1. Tela de planos → register com `plan`
+2. Redirect para `checkoutUrl`
+3. Volta no login → `POST /auth/login`
+4. Se o login vier 402, chame `/billing/checkout` de novo
+5. Painel: `GET /auth/me` le `subscription.plan`, `isTrialing`, `currentPeriodEnd`, `cancelAtPeriodEnd`
+6. Premium esconde a marca: `showBranding === false` na pagina publica
+
+`subscription.grantsAccess` e `true` para `TRIALING`, `ACTIVE` e `PAST_DUE`.
 
 ---
 
@@ -264,18 +307,21 @@ Shape:
 |---|---|
 | E-mail | `maria@demo.com` |
 | Senha | `Demo1234!` |
+| Plano | Premium (seed) |
 | Página | `GET /p/maria-oliveira` |
 
 ---
 
 ## 10. Fluxo sugerido no FE
 
-1. Register / Login  
-2. Onboarding: escolher username (`PUT /me/profile` + `/usernames/check`)  
-3. Preencher HERO / WhatsApp / serviços  
-4. Preview (`GET /me/profile/preview`)  
-5. Publicar (`POST /me/profile/publish`)  
-6. Página pública (`GET /p/:username`)
+1. Escolher plano (Pro/Premium) e Register  
+2. Stripe Checkout (7 dias gratis)  
+3. Login  
+4. Onboarding: escolher username (`PUT /me/profile` + `/usernames/check`)  
+5. Preencher HERO / WhatsApp / serviços  
+6. Preview (`GET /me/profile/preview`)  
+7. Publicar (`POST /me/profile/publish`)  
+8. Página pública (`GET /p/:username`)
 
 ---
 
@@ -294,7 +340,8 @@ Shape:
 | Status | code | Significado |
 |---|---|---|
 | 401 | `UNAUTHORIZED` / `INVALID_CREDENTIALS` | Sem login / senha errada |
-| 404 | `PAGE_NOT_FOUND` | Username inexistente ou DRAFT |
-| 409 | `USERNAME_TAKEN` / `EMAIL_ALREADY_USED` | Conflito |
+| 402 | `SUBSCRIPTION_REQUIRED` | Sem plano ativo (login, refresh ou `/me/*`) |
+| 404 | `PAGE_NOT_FOUND` | Username inexistente, DRAFT ou dono sem plano |
+| 409 | `USERNAME_TAKEN` / `EMAIL_ALREADY_USED` / `ALREADY_SUBSCRIBED` | Conflito |
 | 422 | `VALIDATION_ERROR` | Body inválido (`details` com campos) |
 | 429 | `TOO_MANY_REQUESTS` | Rate limit em login/forgot |

@@ -159,8 +159,17 @@ async function main() {
     [profileId],
   );
 
+  await query(
+    `INSERT INTO subscriptions (
+       "userId", plan, status, "trialUsed", "trialEndsAt",
+       "currentPeriodStart", "currentPeriodEnd"
+     ) VALUES ($1, 'PREMIUM', 'ACTIVE', TRUE, NOW() - INTERVAL '1 day', NOW(), NOW() + INTERVAL '30 days')`,
+    [user!.id],
+  );
+
   console.log("Seed concluido:");
   console.log("  login:  maria@demo.com / Demo1234!");
+  console.log("  plano:  PREMIUM (ativo)");
   console.log("  pagina: GET /p/maria-oliveira");
 }
 

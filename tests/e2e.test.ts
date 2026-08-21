@@ -25,16 +25,28 @@ afterAll(async () => {
 });
 
 describe("fluxo do usuario", () => {
-  it("registra a conta e ja cria um perfil DRAFT", async () => {
+  it("registra a conta, escolhe o plano e inicia o trial (sem login)", async () => {
     const response = await request(app)
       .post("/auth/register")
-      .send({ name: "Usuario E2E", email, password, confirmPassword: password });
+      .send({ name: "Usuario E2E", email, password, confirmPassword: password, plan: "PRO" });
 
     expect(response.status).toBe(201);
     expect(response.body.error).toBeNull();
     expect(response.body.data.user.email).toBe(email);
     expect(response.body.data.user).not.toHaveProperty("passwordHash");
-    expect(response.body.data.accessToken).toBeTruthy();
+    expect(response.body.data.accessToken).toBeUndefined();
+    expect(response.body.data.plan).toBe("PRO");
+    expect(response.body.data.trialGranted).toBe(true);
+  });
+
+  it("lista os planos Pro e Premium", async () => {
+    const response = await request(app).get("/billing/plans");
+    expect(response.status).toBe(200);
+    expect(response.body.data.plans.map((plan: { id: string }) => plan.id)).toEqual([
+      "PRO",
+      "PREMIUM",
+    ]);
+    expect(response.body.data.trialDays).toBe(7);
   });
 
   it("recusa senha errada no login", async () => {
@@ -52,6 +64,30 @@ describe("fluxo do usuario", () => {
     expect(response.status).toBe(200);
     accessToken = response.body.data.accessToken;
     expect(accessToken).toBeTruthy();
+    expect(response.body.data.subscription.plan).toBe("PRO");
+    expect(response.body.data.subscription.grantsAccess).toBe(true);
+  });
+
+  it("recusa login sem assinatura ativa", async () => {
+    const noPlanEmail = `e2e-noplan-${Date.now()}@demo.com`;
+    await request(app)
+      .post("/auth/register")
+      .send({
+        name: "Sem Plano",
+        email: noPlanEmail,
+        password,
+        confirmPassword: password,
+        plan: "PRO",
+      });
+    await query(`DELETE FROM subscriptions WHERE "userId" = (SELECT id FROM users WHERE email = $1)`, [
+      noPlanEmail,
+    ]);
+
+    const response = await request(app).post("/auth/login").send({ email: noPlanEmail, password });
+    expect(response.status).toBe(402);
+    expect(response.body.error.code).toBe("SUBSCRIPTION_REQUIRED");
+
+    await query(`DELETE FROM users WHERE email = $1`, [noPlanEmail]);
   });
 
   it("bloqueia rotas privadas sem token", async () => {
@@ -162,6 +198,7 @@ describe("fluxo do usuario", () => {
 
     const publicPage = await request(app).get(`/p/${username}`);
     expect(publicPage.body.data.blocks).toHaveLength(0);
+    expect(publicPage.body.data.showBranding).toBe(true);
 
     const preview = await request(app)
       .get("/me/profile/preview")
@@ -171,13 +208,20 @@ describe("fluxo do usuario", () => {
 
   it("impede editar bloco de outro usuario", async () => {
     const otherEmail = `e2e-outro-${Date.now()}@demo.com`;
-    const other = await request(app)
+    await request(app)
       .post("/auth/register")
-      .send({ name: "Outro", email: otherEmail, password, confirmPassword: password });
+      .send({
+        name: "Outro",
+        email: otherEmail,
+        password,
+        confirmPassword: password,
+        plan: "PRO",
+      });
+    const otherLogin = await request(app).post("/auth/login").send({ email: otherEmail, password });
 
     const response = await request(app)
       .patch(`/me/profile/blocks/${blockId}`)
-      .set("Authorization", `Bearer ${other.body.data.accessToken}`)
+      .set("Authorization", `Bearer ${otherLogin.body.data.accessToken}`)
       .send({ isVisible: true });
 
     expect(response.status).toBe(404);

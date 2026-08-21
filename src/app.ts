@@ -9,6 +9,8 @@ import { ok } from "./lib/http";
 import { uploadDir } from "./lib/upload";
 import { errorHandler, notFoundHandler } from "./middlewares/error-handler";
 import { authRoutes } from "./modules/auth/auth.routes";
+import { billingRoutes } from "./modules/billing/billing.routes";
+import { handleStripeWebhook } from "./modules/billing/billing.service";
 import { profileRoutes } from "./modules/profile/profile.routes";
 import { publicRoutes } from "./modules/public/public.routes";
 
@@ -31,6 +33,15 @@ export function createApp() {
     }),
   );
 
+  // Webhook da Stripe precisa do body cru para validar a assinatura.
+  app.post("/billing/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+    const signatureHeader = req.headers["stripe-signature"];
+    const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
+    const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body ?? "");
+    const result = await handleStripeWebhook(rawBody, signature);
+    return ok(res, result);
+  });
+
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
   app.use("/uploads", express.static(uploadDir));
@@ -38,6 +49,7 @@ export function createApp() {
   app.get("/health", (_req, res) => ok(res, { status: "ok", env: env.NODE_ENV }));
 
   app.use("/auth", authRoutes);
+  app.use("/billing", billingRoutes);
   app.use("/me/profile", profileRoutes);
   app.use(publicRoutes);
 

@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
+import Stripe from "stripe";
 import { ZodError } from "zod";
 import { env } from "../config/env";
 import { AppError } from "../lib/errors";
@@ -26,6 +27,18 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
 
   if (err instanceof AppError) {
     return fail(res, err.status, err.code, err.message, err.details);
+  }
+
+  if (err instanceof Stripe.errors.StripeError) {
+    const inactive = /inactive/i.test(err.message);
+    return fail(
+      res,
+      400,
+      inactive ? "STRIPE_PRICE_INACTIVE" : "STRIPE_ERROR",
+      inactive
+        ? "O preco da Stripe esta inativo. Confira STRIPE_PRICE_PRO / STRIPE_PRICE_PREMIUM no .env e reinicie a API."
+        : err.message,
+    );
   }
 
   if (err instanceof multer.MulterError) {

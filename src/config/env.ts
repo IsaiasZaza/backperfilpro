@@ -1,5 +1,13 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import { z } from "zod";
+
+/**
+ * Em producao as env do host (Railway/Render) vencem.
+ * Em dev o tsx watch herda process.env antigo — reler o .env evita Price IDs inativos.
+ */
+dotenv.config({
+  override: process.env.NODE_ENV !== "production",
+});
 
 /**
  * Toda variavel de ambiente passa por aqui.
@@ -39,6 +47,12 @@ const envSchema = z.object({
 
   UPLOAD_DIR: z.string().default("uploads"),
   MAX_AVATAR_SIZE_MB: z.coerce.number().default(2),
+
+  STRIPE_SECRET_KEY: z.string().optional().default(""),
+  STRIPE_WEBHOOK_SECRET: z.string().optional().default(""),
+  STRIPE_PRICE_PRO: z.string().optional().default(""),
+  STRIPE_PRICE_PREMIUM: z.string().optional().default(""),
+  STRIPE_TRIAL_DAYS: z.coerce.number().int().min(0).default(7),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -46,6 +60,19 @@ const parsed = envSchema.safeParse(process.env);
 if (!parsed.success) {
   console.error("Variaveis de ambiente invalidas:");
   console.error(z.prettifyError(parsed.error));
+  process.exit(1);
+}
+
+if (
+  parsed.data.NODE_ENV === "production" &&
+  (!parsed.data.STRIPE_SECRET_KEY ||
+    !parsed.data.STRIPE_WEBHOOK_SECRET ||
+    !parsed.data.STRIPE_PRICE_PRO ||
+    !parsed.data.STRIPE_PRICE_PREMIUM)
+) {
+  console.error(
+    "Em producao e obrigatorio definir STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_PRO e STRIPE_PRICE_PREMIUM.",
+  );
   process.exit(1);
 }
 

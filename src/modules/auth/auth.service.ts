@@ -13,6 +13,13 @@ import {
   signAccessToken,
 } from "../../lib/tokens";
 import { buildTemporaryUsername } from "../../lib/username";
+import {
+  assertLoginAllowed,
+  createCheckoutForUser,
+  getSubscriptionByUserId,
+  presentSubscription,
+} from "../billing/billing.service";
+import type { RegisterInput } from "./auth.schemas";
 
 /** Nunca devolvemos passwordHash para o cliente. */
 export function toPublicUser(user: User) {
@@ -38,7 +45,7 @@ async function issueTokens(user: User) {
   return { accessToken, refreshToken };
 }
 
-export async function register(input: { name: string; email: string; password: string }) {
+export async function register(input: RegisterInput) {
   const existing = await queryOne<User>(`SELECT * FROM users WHERE email = $1`, [input.email]);
   if (existing) {
     throw conflict("Ja existe uma conta com esse e-mail", "EMAIL_ALREADY_USED");
@@ -59,10 +66,10 @@ export async function register(input: { name: string; email: string; password: s
     [user.id, buildTemporaryUsername(user.id), user.name],
   );
 
-  const tokens = await issueTokens(user);
-  logger.info("usuario registrado", { userId: user.id });
+  const checkout = await createCheckoutForUser(user, input.plan);
+  logger.info("usuario registrado, aguardando checkout", { userId: user.id, plan: input.plan });
 
-  return { user: toPublicUser(user), ...tokens };
+  return { user: toPublicUser(user), ...checkout };
 }
 
 export async function login(input: { email: string; password: string }) {
@@ -73,10 +80,11 @@ export async function login(input: { email: string; password: string }) {
   const passwordMatches = await verifyPassword(input.password, user.passwordHash);
   if (!passwordMatches) throw invalid;
 
+  const subscription = await assertLoginAllowed(user);
   const tokens = await issueTokens(user);
-  logger.info("login realizado", { userId: user.id });
+  logger.info("login realizado", { userId: user.id, plan: subscription.plan });
 
-  return { user: toPublicUser(user), ...tokens };
+  return { user: toPublicUser(user), subscription: presentSubscription(subscription), ...tokens };
 }
 
 export async function refresh(rawRefreshToken: string) {
@@ -92,10 +100,11 @@ export async function refresh(rawRefreshToken: string) {
   const user = await queryOne<User>(`SELECT * FROM users WHERE id = $1`, [token.userId]);
   if (!user) throw unauthorized("Sessao expirada. Faca login novamente.", "INVALID_REFRESH_TOKEN");
 
+  const subscription = await assertLoginAllowed(user);
   await query(`UPDATE refresh_tokens SET "revokedAt" = NOW() WHERE id = $1`, [token.id]);
 
   const tokens = await issueTokens(user);
-  return { user: toPublicUser(user), ...tokens };
+  return { user: toPublicUser(user), subscription: presentSubscription(subscription), ...tokens };
 }
 
 export async function logout(rawRefreshToken?: string) {
@@ -172,5 +181,7 @@ export async function getMe(userId: string) {
     [userId],
   );
 
-  return { ...toPublicUser(user), profile };
+  const subscription = await getSubscriptionByUserId(userId);
+
+  return { ...toPublicUser(user), profile, subscription: presentSubscription(subscription) };
 }

@@ -37,6 +37,7 @@ const json = (description: string, schema: object) => ({
 const errors = {
   400: json("Requisicao invalida", errorResponse),
   401: json("Nao autenticado", errorResponse),
+  402: json("Assinatura necessaria", errorResponse),
   403: json("Sem permissao", errorResponse),
   404: json("Nao encontrado", errorResponse),
   409: json("Conflito", errorResponse),
@@ -137,15 +138,50 @@ const publicPageSchema = {
     theme: { type: "object" },
     status: { type: "string", enum: ["DRAFT", "PUBLISHED"] },
     publishedAt: { type: "string", format: "date-time", nullable: true },
+    plan: { type: "string", enum: ["PRO", "PREMIUM"], nullable: true },
+    showBranding: { type: "boolean" },
     blocks: { type: "array", items: blockSchema },
     services: { type: "array", items: serviceSchema },
     testimonials: { type: "array", items: testimonialSchema },
   },
 };
 
+const subscriptionSchema = {
+  type: "object",
+  properties: {
+    plan: { type: "string", enum: ["PRO", "PREMIUM"], nullable: true },
+    status: {
+      type: "string",
+      nullable: true,
+      enum: [
+        "INCOMPLETE",
+        "INCOMPLETE_EXPIRED",
+        "TRIALING",
+        "ACTIVE",
+        "PAST_DUE",
+        "CANCELED",
+        "UNPAID",
+        "PAUSED",
+        null,
+      ],
+    },
+    trialUsed: { type: "boolean" },
+    isTrialing: { type: "boolean" },
+    grantsAccess: { type: "boolean" },
+    trialEndsAt: { type: "string", format: "date-time", nullable: true },
+    currentPeriodEnd: { type: "string", format: "date-time", nullable: true },
+    cancelAtPeriodEnd: { type: "boolean" },
+    entitlements: { type: "object", nullable: true },
+  },
+};
+
 const authSuccess = success({
   type: "object",
-  properties: { user: userSchema, accessToken: { type: "string" } },
+  properties: {
+    user: userSchema,
+    accessToken: { type: "string" },
+    subscription: subscriptionSchema,
+  },
 });
 
 const body = (schema: object, required = true) => ({
@@ -166,19 +202,22 @@ export const openapiDocument = {
     title: "PerfilPro API",
     version: "1.0.0",
     description: [
-      "API do PerfilPro: autenticacao, builder de pagina (blocos) e pagina publica estilo Linktree.",
+      "API do PerfilPro: autenticacao, assinaturas Stripe (Pro/Premium com 7 dias gratis), builder de pagina (blocos) e pagina publica estilo Linktree.",
       "",
       "**Formato das respostas**: sempre `{ \"data\": ..., \"error\": null }` ou `{ \"data\": null, \"error\": { \"code\": \"...\", \"message\": \"...\" } }`.",
       "",
-      "**Autenticacao**: apos login/registro a API devolve `accessToken` no corpo e grava os cookies httpOnly `pp_access_token` e `pp_refresh_token`.",
+      "**Planos**: o cadastro exige `plan` (`PRO` ou `PREMIUM`) e devolve `checkoutUrl` da Stripe. O login so e liberado com assinatura `TRIALING`, `ACTIVE` ou `PAST_DUE`.",
+      "",
+      "**Autenticacao**: apos o login a API devolve `accessToken` no corpo e grava os cookies httpOnly `pp_access_token` e `pp_refresh_token`.",
       "No Swagger, clique em *Authorize* e cole o `accessToken`.",
       "",
-      "**Usuario de demonstracao (seed)**: `maria@demo.com` / `Demo1234!` - pagina publica em `/p/maria-oliveira`.",
+      "**Usuario de demonstracao (seed)**: `maria@demo.com` / `Demo1234!` (plano Premium) - pagina publica em `/p/maria-oliveira`.",
     ].join("\n"),
   },
   servers: [{ url: env.APP_URL }],
   tags: [
     { name: "Auth", description: "Cadastro, login, sessao e recuperacao de senha" },
+    { name: "Billing", description: "Planos Pro/Premium, checkout Stripe, trial de 7 dias e portal" },
     { name: "Perfil", description: "Dados da pagina do usuario logado" },
     { name: "Blocos", description: "Builder estilo WordPress: blocos da pagina" },
     { name: "Servicos" },
@@ -205,26 +244,47 @@ export const openapiDocument = {
     "/auth/register": {
       post: {
         tags: ["Auth"],
-        summary: "Cria a conta e ja gera um perfil DRAFT",
+        summary: "Cria a conta, escolhe o plano e abre o checkout (7 dias gratis)",
+        description:
+          "Nao devolve token. Depois do pagamento/trial na Stripe, use POST /auth/login. Em teste o trial e ativado localmente.",
         security: [],
         requestBody: body({
           type: "object",
-          required: ["name", "email", "password", "confirmPassword"],
+          required: ["name", "email", "password", "confirmPassword", "plan"],
           properties: {
             name: { type: "string", example: "Maria Oliveira" },
             email: { type: "string", example: "maria@demo.com" },
             password: { type: "string", minLength: 8, example: "Demo1234!" },
             confirmPassword: { type: "string", example: "Demo1234!" },
+            plan: { type: "string", enum: ["PRO", "PREMIUM"], example: "PRO" },
           },
         }),
-        responses: { 201: json("Conta criada", authSuccess), 409: errors[409], 422: errors[422] },
+        responses: {
+          201: json(
+            "Conta criada",
+            success({
+              type: "object",
+              properties: {
+                user: userSchema,
+                checkoutUrl: { type: "string", nullable: true },
+                sessionId: { type: "string", nullable: true },
+                plan: { type: "string", enum: ["PRO", "PREMIUM"] },
+                trialGranted: { type: "boolean" },
+                trialDays: { type: "integer", example: 7 },
+                subscription: subscriptionSchema,
+              },
+            }),
+          ),
+          409: errors[409],
+          422: errors[422],
+        },
       },
     },
 
     "/auth/login": {
       post: {
         tags: ["Auth"],
-        summary: "Login com e-mail e senha",
+        summary: "Login com e-mail e senha (exige plano ativo ou trial)",
         security: [],
         requestBody: body({
           type: "object",
@@ -234,7 +294,12 @@ export const openapiDocument = {
             password: { type: "string", example: "Demo1234!" },
           },
         }),
-        responses: { 200: json("Autenticado", authSuccess), 401: errors[401], 429: errors[429] },
+        responses: {
+          200: json("Autenticado", authSuccess),
+          401: errors[401],
+          402: errors[402],
+          429: errors[429],
+        },
       },
     },
 
@@ -250,7 +315,7 @@ export const openapiDocument = {
           },
           false,
         ),
-        responses: { 200: json("Novo par de tokens", authSuccess), 401: errors[401] },
+        responses: { 200: json("Novo par de tokens", authSuccess), 401: errors[401], 402: errors[402] },
       },
     },
 
@@ -297,8 +362,126 @@ export const openapiDocument = {
     "/auth/me": {
       get: {
         tags: ["Auth"],
-        summary: "Dados do usuario logado",
-        responses: { 200: json("Usuario", success(userSchema)), 401: errors[401] },
+        summary: "Dados do usuario logado + assinatura",
+        responses: {
+          200: json(
+            "Usuario",
+            success({
+              type: "object",
+              properties: {
+                ...userSchema.properties,
+                profile: { type: "object" },
+                subscription: subscriptionSchema,
+              },
+            }),
+          ),
+          401: errors[401],
+        },
+      },
+    },
+
+    "/billing/plans": {
+      get: {
+        tags: ["Billing"],
+        summary: "Lista os planos Pro e Premium (publico)",
+        security: [],
+        responses: { 200: json("Planos", success({ type: "object" })) },
+      },
+    },
+
+    "/billing/checkout": {
+      post: {
+        tags: ["Billing"],
+        summary: "Cria a sessao de checkout da Stripe (login ainda nao liberado)",
+        description:
+          "Use apos o cadastro ou quando a assinatura expirou. Trial de 7 dias so na primeira assinatura. Cobra o cartao depois do trial.",
+        security: [],
+        requestBody: body({
+          type: "object",
+          required: ["email", "password", "plan"],
+          properties: {
+            email: { type: "string", example: "maria@demo.com" },
+            password: { type: "string" },
+            plan: { type: "string", enum: ["PRO", "PREMIUM"] },
+          },
+        }),
+        responses: {
+          200: json("Checkout", success({ type: "object" })),
+          401: errors[401],
+          409: errors[409],
+        },
+      },
+    },
+
+    "/billing/confirm-session": {
+      post: {
+        tags: ["Billing"],
+        summary: "Sincroniza a sessao da Stripe se o webhook atrasar",
+        security: [],
+        requestBody: body({
+          type: "object",
+          required: ["sessionId"],
+          properties: { sessionId: { type: "string" } },
+        }),
+        responses: { 200: json("Assinatura", success({ type: "object" })), 400: errors[400] },
+      },
+    },
+
+    "/billing/webhook": {
+      post: {
+        tags: ["Billing"],
+        summary: "Webhook da Stripe (assinatura crua, validada por stripe-signature)",
+        security: [],
+        responses: { 200: json("Recebido", success({ type: "object" })), 401: errors[401] },
+      },
+    },
+
+    "/billing/subscription": {
+      get: {
+        tags: ["Billing"],
+        summary: "Assinatura do usuario logado",
+        responses: { 200: json("Assinatura", success({ type: "object" })), 401: errors[401] },
+      },
+    },
+
+    "/billing/change-plan": {
+      post: {
+        tags: ["Billing"],
+        summary: "Troca entre Pro e Premium (com prorata)",
+        requestBody: body({
+          type: "object",
+          required: ["plan"],
+          properties: { plan: { type: "string", enum: ["PRO", "PREMIUM"] } },
+        }),
+        responses: {
+          200: json("Plano atualizado", success({ type: "object" })),
+          402: errors[402],
+          409: errors[409],
+        },
+      },
+    },
+
+    "/billing/cancel": {
+      post: {
+        tags: ["Billing"],
+        summary: "Cancela no fim do periodo (trial ou pago)",
+        responses: { 200: json("Cancelamento agendado", success({ type: "object" })), 402: errors[402] },
+      },
+    },
+
+    "/billing/resume": {
+      post: {
+        tags: ["Billing"],
+        summary: "Desfaz o cancelamento agendado",
+        responses: { 200: json("Assinatura retomada", success({ type: "object" })), 402: errors[402] },
+      },
+    },
+
+    "/billing/portal": {
+      post: {
+        tags: ["Billing"],
+        summary: "Abre o Customer Portal da Stripe (cartao, faturas, plano)",
+        responses: { 200: json("URL do portal", success({ type: "object" })), 400: errors[400] },
       },
     },
 

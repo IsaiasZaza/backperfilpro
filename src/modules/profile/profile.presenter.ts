@@ -1,9 +1,11 @@
-import type { Block, Profile, ServiceItem, Testimonial } from "../../db/types";
+import type { Block, Profile, Plan, ServiceItem, Testimonial } from "../../db/types";
 
 type FullProfile = Profile & {
   blocks: Block[];
   services: ServiceItem[];
   testimonials: Testimonial[];
+  plan?: Plan | null;
+  showBranding?: boolean;
 };
 
 export const presentBlock = (block: Block) => ({
@@ -75,6 +77,8 @@ export function presentPublicPage(profile: FullProfile, onlyVisible = true) {
     theme: profile.theme,
     status: profile.status,
     publishedAt: profile.publishedAt,
+    plan: profile.plan ?? null,
+    showBranding: profile.showBranding ?? profile.plan !== "PREMIUM",
     blocks: ordered(profile.blocks).map(presentBlock),
     services: ordered(profile.services).map(presentService),
     testimonials: ordered(profile.testimonials).map(presentTestimonial),
