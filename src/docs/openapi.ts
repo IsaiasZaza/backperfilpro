@@ -137,7 +137,7 @@ const testimonialSchema = {
   type: "object",
   properties: {
     id: { type: "string", format: "uuid" },
-    authorName: { type: "string", example: "Juliana Prado" },
+    authorName: { type: "string", example: "Juliana Prado", description: "Pode ser vazio." },
     text: { type: "string" },
     rating: { type: "integer", minimum: 1, maximum: 5 },
     sortOrder: { type: "integer" },
@@ -720,9 +720,12 @@ export const openapiDocument = {
         summary: "Cria um depoimento",
         requestBody: body({
           type: "object",
-          required: ["authorName", "text"],
           properties: {
-            authorName: { type: "string", example: "Juliana Prado" },
+            authorName: {
+              type: "string",
+              example: "Juliana Prado",
+              description: "Pode ser vazio ou uma unica letra.",
+            },
             text: { type: "string", example: "Atendimento impecavel!" },
             rating: { type: "integer", minimum: 1, maximum: 5, example: 5 },
             sortOrder: { type: "integer" },
