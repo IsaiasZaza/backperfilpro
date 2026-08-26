@@ -13,7 +13,6 @@ async function main() {
   }
 
   const stripe = new Stripe(key);
-  const trialDays = Number(process.env.STRIPE_TRIAL_DAYS ?? 7);
 
   const pro = await upsertPlan(stripe, {
     plan: "PRO",
@@ -34,7 +33,6 @@ async function main() {
   console.log("\nProdutos prontos. Cole isto no .env:\n");
   console.log(`STRIPE_PRICE_PRO=${pro.priceId}`);
   console.log(`STRIPE_PRICE_PREMIUM=${premium.priceId}`);
-  console.log(`STRIPE_TRIAL_DAYS=${trialDays}`);
   console.log("\nWebhook local:");
   console.log("  stripe listen --forward-to localhost:3333/billing/webhook");
   console.log("  (cole o whsec_... em STRIPE_WEBHOOK_SECRET)\n");

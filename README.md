@@ -65,10 +65,10 @@ Nao use `channel_binding=require`.
 
 ## Autenticacao
 
-- O **cadastro exige um plano** (`PRO` ou `PREMIUM`) e **nao devolve token**.
-- A API cria a sessao de checkout da Stripe com **7 dias gratis**. Depois do trial/pagamento, use `/auth/login`.
-- Login/refresh so funcionam com assinatura `TRIALING`, `ACTIVE` ou `PAST_DUE`.
-- Rotas `/me/*` aceitam `Authorization: Bearer <token>` ou o cookie, e tambem exigem plano ativo.
+- O **cadastro entra no plano Free** e **ja devolve token**.
+- Upgrade para Pro/Premium e feito depois via checkout Stripe (sem trial).
+- Login/refresh funcionam com plano `FREE`, `PRO` ou `PREMIUM` ativo.
+- Rotas `/me/*` aceitam `Authorization: Bearer <token>` ou o cookie.
 
 Resposta padrao:
 
@@ -82,10 +82,11 @@ Resposta padrao:
 
 Planos mensais em BRL:
 
-| Plano | Preco | Trial |
+| Plano | Preco | Limites |
 |---|---|---|
-| Pro | R$ 20,00 | 7 dias |
-| Premium | R$ 39,00 | 7 dias (somente na 1a assinatura) |
+| Free | R$ 0 | 4 blocos (Hero, link, WhatsApp, redes), 2 servicos, 2 depoimentos, marca PerfilPro |
+| Pro | R$ 20,00 | Ilimitado, temas; marca PerfilPro |
+| Premium | R$ 39,00 | Tudo do Pro, sem marca |
 
 ```bash
 # 1) cole STRIPE_SECRET_KEY (sk_test_...) no .env
@@ -99,13 +100,11 @@ stripe listen --forward-to localhost:3333/billing/webhook
 
 Fluxo:
 
-1. `POST /auth/register` com `plan` → `{ checkoutUrl }`
-2. Usuario paga/inicia trial na Stripe
-3. Webhook `checkout.session.completed` / `customer.subscription.*` grava a assinatura
-4. `POST /auth/login` libera o painel
-5. Troca/cancelamento: `POST /billing/change-plan`, `/cancel`, `/resume` ou `/portal`
-
-Sem plano ativo a pagina publica (`GET /p/:username`) tambem some.
+1. `POST /auth/register` → tokens + plano Free
+2. Usuario usa o painel com limites do Free
+3. `POST /billing/checkout` com Pro/Premium → Stripe
+4. Webhook grava a assinatura paga
+5. Cancelamento da Stripe volta a conta para Free (a pagina publica continua no ar, com limites)
 
 ---
 
@@ -115,7 +114,7 @@ Sem plano ativo a pagina publica (`GET /p/:username`) tambem some.
 2. Username livre em DRAFT; apos PUBLISHED, no maximo 1 troca.
 3. Publicar exige username definitivo, displayName e 1 bloco visivel.
 4. `GET /p/:username` so retorna PUBLISHED **e** dono com plano ativo.
-5. Cadastro exige plano; login e `/me/*` exigem assinatura ativa (trial conta).
+5. Cadastro entra no Free; criar bloco/servico/depoimento/tema acima do plano responde 402 `PLAN_LIMIT_REACHED` ou `PLAN_FEATURE_LOCKED`.
 
 ---
 

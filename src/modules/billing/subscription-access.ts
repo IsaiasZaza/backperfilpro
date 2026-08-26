@@ -1,4 +1,3 @@
-import { env } from "../../config/env";
 import type { Plan, Subscription } from "../../db/types";
 import { getPlanCatalog } from "./plans";
 
@@ -40,13 +39,11 @@ export function presentSubscription(subscription: Subscription | null) {
     cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
     canceledAt: subscription.canceledAt,
     entitlements: catalog.entitlements,
-    trialDays: env.STRIPE_TRIAL_DAYS,
   };
 }
 
 export function subscriptionRequiredError(plan?: Plan | null) {
   return {
-    trialDays: env.STRIPE_TRIAL_DAYS,
-    suggestedPlan: plan ?? "PRO",
+    suggestedPlan: plan && plan !== "FREE" ? plan : "PRO",
   };
 }

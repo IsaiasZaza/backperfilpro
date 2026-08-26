@@ -11,7 +11,6 @@ export const registerSchema = z
     email: z.email("E-mail invalido").toLowerCase().trim(),
     password: passwordSchema,
     confirmPassword: z.string(),
-    plan: z.enum(["PRO", "PREMIUM"], { error: "Escolha o plano PRO ou PREMIUM" }),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "As senhas nao conferem",

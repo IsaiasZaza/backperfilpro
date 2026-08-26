@@ -4,7 +4,15 @@ import type { Block, Profile, ServiceItem, Testimonial } from "../../db/types";
 import { badRequest, conflict, forbidden, notFound } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { isReservedUsername } from "../../lib/username";
-import { getSubscriptionByUserId, grantsAccess } from "../billing/billing.service";
+import { grantsAccess, resolveSubscription } from "../billing/billing.service";
+import {
+  applyCountLimit,
+  assertCanUpdateTheme,
+  entitlementsOf,
+  filterBlocksForPlan,
+  sanitizeThemeForPlan,
+  showBrandingFor,
+} from "../billing/entitlements";
 import type { updateProfileSchema } from "./profile.schemas";
 
 export async function getProfileByUserId(userId: string) {
@@ -28,16 +36,19 @@ export async function getFullProfileByUserId(userId: string) {
       `SELECT * FROM testimonials WHERE "profileId" = $1 ORDER BY "sortOrder" ASC`,
       [profile.id],
     ),
-    getSubscriptionByUserId(userId),
+    resolveSubscription(userId),
   ]);
 
+  const plan = subscription?.plan ?? "FREE";
+  const entitlements = entitlementsOf(plan);
   return {
     ...profile,
-    plan: subscription?.plan ?? null,
-    showBranding: subscription?.plan !== "PREMIUM",
-    blocks: blocks.map(mapBlock),
-    services,
-    testimonials,
+    theme: sanitizeThemeForPlan(plan, profile.theme),
+    plan,
+    showBranding: showBrandingFor(plan),
+    blocks: filterBlocksForPlan(plan, blocks.map(mapBlock)),
+    services: applyCountLimit(services, entitlements.maxServices),
+    testimonials: applyCountLimit(testimonials, entitlements.maxTestimonials),
   };
 }
 
@@ -83,8 +94,20 @@ async function resolveUsernameChange(profile: Profile, username: string) {
 
 export async function updateProfile(userId: string, input: z.infer<typeof updateProfileSchema>) {
   const profile = await getProfileByUserId(userId);
+  const subscription = await resolveSubscription(userId);
+  const plan = subscription?.plan ?? "FREE";
   const { username, theme, ...rest } = input;
   const usernameData = username ? await resolveUsernameChange(profile, username) : {};
+
+  const hasOtherFields = Object.values(rest).some((value) => value !== undefined) || Boolean(username);
+  if (theme !== undefined && !entitlementsOf(plan).customTheme) {
+    if (!hasOtherFields) assertCanUpdateTheme(plan);
+  }
+
+  const nextTheme =
+    theme !== undefined && entitlementsOf(plan).customTheme
+      ? { ...profile.theme, ...theme }
+      : profile.theme;
 
   const next = {
     displayName: rest.displayName !== undefined ? rest.displayName : profile.displayName,
@@ -92,7 +115,7 @@ export async function updateProfile(userId: string, input: z.infer<typeof update
     bio: rest.bio !== undefined ? rest.bio : profile.bio,
     avatarUrl: rest.avatarUrl !== undefined ? rest.avatarUrl : profile.avatarUrl,
     location: rest.location !== undefined ? rest.location : profile.location,
-    theme: theme ? { ...profile.theme, ...theme } : profile.theme,
+    theme: nextTheme,
     username: (usernameData as { username?: string }).username ?? profile.username,
     usernameChangesAfterPublish:
       (usernameData as { usernameChangesAfterPublish?: number }).usernameChangesAfterPublish ??
@@ -184,7 +207,7 @@ export async function getPublicProfile(username: string) {
   );
   if (!profile) throw notFound("Pagina nao encontrada", "PAGE_NOT_FOUND");
 
-  const subscription = await getSubscriptionByUserId(profile.userId);
+  const subscription = await resolveSubscription(profile.userId);
   if (!grantsAccess(subscription)) {
     throw notFound("Pagina nao encontrada", "PAGE_NOT_FOUND");
   }
@@ -205,13 +228,16 @@ export async function getPublicProfile(username: string) {
     ),
   ]);
 
+  const plan = subscription!.plan;
+  const entitlements = entitlementsOf(plan);
   return {
     ...mapped,
-    plan: subscription!.plan,
-    showBranding: subscription!.plan !== "PREMIUM",
-    blocks: blocks.map(mapBlock),
-    services,
-    testimonials,
+    theme: sanitizeThemeForPlan(plan, mapped.theme),
+    plan,
+    showBranding: showBrandingFor(plan),
+    blocks: filterBlocksForPlan(plan, blocks.map(mapBlock)),
+    services: applyCountLimit(services, entitlements.maxServices),
+    testimonials: applyCountLimit(testimonials, entitlements.maxTestimonials),
   };
 }
 

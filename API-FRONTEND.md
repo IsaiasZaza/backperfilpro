@@ -73,31 +73,26 @@ Autenticação aceita:
   "name": "Maria Oliveira",
   "email": "maria@demo.com",
   "password": "Demo1234!",
-  "confirmPassword": "Demo1234!",
-  "plan": "PRO"
+  "confirmPassword": "Demo1234!"
 }
 ```
-`plan` e obrigatorio: `PRO` ou `PREMIUM`.
+Nao envie `plan`. Toda conta nasce no **Free**.
 
-Resposta (`201`): `{ user, checkoutUrl, sessionId, plan, trialGranted, trialDays }` — **sem accessToken**.
+Resposta (`201`): `{ user, accessToken, subscription }` + cookies. `subscription.plan` e `"FREE"`.
 
-Redirecione o usuario para `checkoutUrl` (Stripe Checkout, 7 dias gratis na primeira assinatura). Depois que a Stripe confirmar, chame `/auth/login`.
-
-Se o checkout for abandonado, use `POST /billing/checkout` com e-mail, senha e plano.
+Upgrade depois: `POST /billing/checkout` com e-mail, senha e `plan` (`PRO` | `PREMIUM`).
 
 ### POST `/auth/login`
 ```json
 { "email": "maria@demo.com", "password": "Demo1234!" }
 ```
-Resposta: `{ user, accessToken, subscription }` + cookies.
-
-**402 `SUBSCRIPTION_REQUIRED`** se nao houver plano ativo (trial, active ou past_due). Nesse caso mande a pessoa para o checkout.
+Resposta: `{ user, accessToken, subscription }` + cookies. Free consegue entrar.
 
 ### POST `/auth/logout`
 Encerra sessão e limpa cookies.
 
 ### POST `/auth/refresh`
-Renova tokens. Tambem exige plano ativo (402 se a assinatura caiu).
+Renova tokens. Free, Pro e Premium ativos entram.
 
 ### POST `/auth/forgot-password`
 ```json
@@ -123,7 +118,7 @@ Usuário logado + resumo do profile + `subscription`.
 
 Guia completo para montar as telas no Next.js: **[FRONTEND-PLANOS.md](./FRONTEND-PLANOS.md)** (rotas, tipos, 402, checkout, trial, portal).
 
-Planos: **Pro R$ 20,00/mes** e **Premium R$ 39,00/mes**, ambos com **7 dias gratis** na primeira assinatura. O cartao e coletado no checkout; a Stripe cobra quando o trial acaba.
+Planos: **Free (cadastro)**, **Pro R$ 20,00/mes** e **Premium R$ 39,00/mes**. Sem trial. O cartao e coletado no checkout do upgrade.
 
 | Método | Rota | Auth | Uso |
 |---|---|---|---|
@@ -175,7 +170,8 @@ Exemplo PUT:
   "theme": {
     "primaryColor": "#7C3AED",
     "buttonStyle": "pill",
-    "font": "sans"
+    "font": "sans",
+    "atmosphere": "claw"
   }
 }
 ```

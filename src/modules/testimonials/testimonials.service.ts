@@ -2,13 +2,25 @@ import type { z } from "zod";
 import { query, queryOne } from "../../db/client";
 import type { Testimonial } from "../../db/types";
 import { notFound } from "../../lib/errors";
+import { resolveSubscription } from "../billing/billing.service";
+import { applyCountLimit, assertCanCreateTestimonial, assertCanMutateIndexedItem, entitlementsOf } from "../billing/entitlements";
 import type { createTestimonialSchema, updateTestimonialSchema } from "./testimonials.schemas";
+
+async function planOf(userId: string) {
+  const subscription = await resolveSubscription(userId);
+  return subscription?.plan ?? "FREE";
+}
 
 export function listTestimonials(profileId: string) {
   return query<Testimonial>(
     `SELECT * FROM testimonials WHERE "profileId" = $1 ORDER BY "sortOrder" ASC`,
     [profileId],
   );
+}
+
+export async function listTestimonialsForPlan(userId: string, profileId: string) {
+  const plan = await planOf(userId);
+  return applyCountLimit(await listTestimonials(profileId), entitlementsOf(plan).maxTestimonials);
 }
 
 async function findOwned(profileId: string, id: string) {
@@ -21,9 +33,17 @@ async function findOwned(profileId: string, id: string) {
 }
 
 export async function createTestimonial(
+  userId: string,
   profileId: string,
   input: z.infer<typeof createTestimonialSchema>,
 ) {
+  const plan = await planOf(userId);
+  const countRow = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM testimonials WHERE "profileId" = $1`,
+    [profileId],
+  );
+  assertCanCreateTestimonial(plan, Number(countRow?.count ?? 0));
+
   const last = await queryOne<{ sortOrder: number }>(
     `SELECT "sortOrder" FROM testimonials WHERE "profileId" = $1 ORDER BY "sortOrder" DESC LIMIT 1`,
     [profileId],
@@ -47,11 +67,22 @@ export async function createTestimonial(
 }
 
 export async function updateTestimonial(
+  userId: string,
   profileId: string,
   id: string,
   input: z.infer<typeof updateTestimonialSchema>,
 ) {
-  const testimonial = await findOwned(profileId, id);
+  const plan = await planOf(userId);
+  const testimonials = await listTestimonials(profileId);
+  const testimonial = testimonials.find((item) => item.id === id);
+  if (!testimonial) throw notFound("Depoimento nao encontrado", "TESTIMONIAL_NOT_FOUND");
+
+  assertCanMutateIndexedItem(
+    plan,
+    "maxTestimonials",
+    id,
+    testimonials.map((item) => item.id),
+  );
 
   const updated = await queryOne<Testimonial>(
     `UPDATE testimonials SET

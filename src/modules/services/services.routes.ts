@@ -11,20 +11,20 @@ const idParamSchema = z.object({ id: z.uuid("id invalido") });
 export const servicesRoutes = Router();
 
 servicesRoutes.get("/", async (req, res) => {
-  const services = await servicesService.listServices(req.profile!.id);
-  return ok(res, services.map(presentService));
+  const services = await servicesService.listServicesForPlan(req.user!.id, req.profile!.id);
+  return ok(res, services.map((service) => presentService(service)));
 });
 
 servicesRoutes.post("/", async (req, res) => {
   const input = createServiceSchema.parse(req.body);
-  const service = await servicesService.createService(req.profile!.id, input);
+  const service = await servicesService.createService(req.user!.id, req.profile!.id, input);
   return ok(res, presentService(service), 201);
 });
 
 servicesRoutes.patch("/:id", async (req, res) => {
   const { id } = idParamSchema.parse(req.params);
   const input = updateServiceSchema.parse(req.body);
-  const service = await servicesService.updateService(req.profile!.id, id, input);
+  const service = await servicesService.updateService(req.user!.id, req.profile!.id, id, input);
   return ok(res, presentService(service));
 });
 

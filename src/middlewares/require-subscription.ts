@@ -14,15 +14,15 @@ declare global {
 }
 
 /**
- * Bloqueia o painel (/me/*) se a assinatura nao estiver trialing, active ou past_due.
+ * Bloqueia o painel (/me/*) se nao houver plano ativo (Free, Pro ou Premium).
  * Precisa rodar depois de `authenticate`.
  */
 export async function requireActiveSubscription(req: Request, _res: Response, next: NextFunction) {
-  const subscription = await billingService.getSubscriptionByUserId(req.user!.id);
+  const subscription = await billingService.resolveSubscription(req.user!.id);
 
   if (!billingService.grantsAccess(subscription)) {
     throw paymentRequired(
-      "Sua conta precisa de um plano Pro ou Premium ativo para continuar.",
+      "Sua conta precisa de um plano ativo para continuar.",
       "SUBSCRIPTION_REQUIRED",
       subscriptionRequiredError(subscription?.plan),
     );

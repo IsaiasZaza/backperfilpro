@@ -14,10 +14,10 @@ import {
 } from "../../lib/tokens";
 import { buildTemporaryUsername } from "../../lib/username";
 import {
+  activateFreePlan,
   assertLoginAllowed,
-  createCheckoutForUser,
-  getSubscriptionByUserId,
   presentSubscription,
+  resolveSubscription,
 } from "../billing/billing.service";
 import type { RegisterInput } from "./auth.schemas";
 
@@ -66,10 +66,15 @@ export async function register(input: RegisterInput) {
     [user.id, buildTemporaryUsername(user.id), user.name],
   );
 
-  const checkout = await createCheckoutForUser(user, input.plan);
-  logger.info("usuario registrado, aguardando checkout", { userId: user.id, plan: input.plan });
+  const subscription = await activateFreePlan(user.id);
+  const tokens = await issueTokens(user);
+  logger.info("usuario registrado no plano Free", { userId: user.id });
 
-  return { user: toPublicUser(user), ...checkout };
+  return {
+    user: toPublicUser(user),
+    subscription: presentSubscription(subscription),
+    ...tokens,
+  };
 }
 
 export async function login(input: { email: string; password: string }) {
@@ -181,7 +186,7 @@ export async function getMe(userId: string) {
     [userId],
   );
 
-  const subscription = await getSubscriptionByUserId(userId);
+  const subscription = await resolveSubscription(userId);
 
   return { ...toPublicUser(user), profile, subscription: presentSubscription(subscription) };
 }

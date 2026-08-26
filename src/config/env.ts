@@ -52,7 +52,6 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional().default(""),
   STRIPE_PRICE_PRO: z.string().optional().default(""),
   STRIPE_PRICE_PREMIUM: z.string().optional().default(""),
-  STRIPE_TRIAL_DAYS: z.coerce.number().int().min(0).default(7),
 });
 
 const parsed = envSchema.safeParse(process.env);

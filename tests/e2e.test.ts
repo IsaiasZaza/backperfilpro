@@ -1,7 +1,7 @@
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
-import { closeDb, query } from "../src/db/client";
+import { query } from "../src/db/client";
 
 /**
  * Fluxo completo: cadastro -> login -> builder -> publicar -> pagina publica.
@@ -21,32 +21,33 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await query(`DELETE FROM users WHERE email = $1`, [email]);
-  await closeDb();
 });
 
 describe("fluxo do usuario", () => {
-  it("registra a conta, escolhe o plano e inicia o trial (sem login)", async () => {
+  it("registra a conta no plano Free e ja autentica", async () => {
     const response = await request(app)
       .post("/auth/register")
-      .send({ name: "Usuario E2E", email, password, confirmPassword: password, plan: "PRO" });
+      .send({ name: "Usuario E2E", email, password, confirmPassword: password });
 
     expect(response.status).toBe(201);
     expect(response.body.error).toBeNull();
     expect(response.body.data.user.email).toBe(email);
     expect(response.body.data.user).not.toHaveProperty("passwordHash");
-    expect(response.body.data.accessToken).toBeUndefined();
-    expect(response.body.data.plan).toBe("PRO");
-    expect(response.body.data.trialGranted).toBe(true);
+    expect(response.body.data.accessToken).toBeTruthy();
+    expect(response.body.data.subscription.plan).toBe("FREE");
+    expect(response.body.data.subscription.grantsAccess).toBe(true);
+    accessToken = response.body.data.accessToken;
   });
 
-  it("lista os planos Pro e Premium", async () => {
+  it("lista os planos Free, Pro e Premium", async () => {
     const response = await request(app).get("/billing/plans");
     expect(response.status).toBe(200);
     expect(response.body.data.plans.map((plan: { id: string }) => plan.id)).toEqual([
+      "FREE",
       "PRO",
       "PREMIUM",
     ]);
-    expect(response.body.data.trialDays).toBe(7);
+    expect(response.body.data.trialDays).toBeUndefined();
   });
 
   it("recusa senha errada no login", async () => {
@@ -64,11 +65,11 @@ describe("fluxo do usuario", () => {
     expect(response.status).toBe(200);
     accessToken = response.body.data.accessToken;
     expect(accessToken).toBeTruthy();
-    expect(response.body.data.subscription.plan).toBe("PRO");
+    expect(response.body.data.subscription.plan).toBe("FREE");
     expect(response.body.data.subscription.grantsAccess).toBe(true);
   });
 
-  it("recusa login sem assinatura ativa", async () => {
+  it("recria o plano Free se a assinatura sumir", async () => {
     const noPlanEmail = `e2e-noplan-${Date.now()}@demo.com`;
     await request(app)
       .post("/auth/register")
@@ -77,15 +78,14 @@ describe("fluxo do usuario", () => {
         email: noPlanEmail,
         password,
         confirmPassword: password,
-        plan: "PRO",
       });
     await query(`DELETE FROM subscriptions WHERE "userId" = (SELECT id FROM users WHERE email = $1)`, [
       noPlanEmail,
     ]);
 
     const response = await request(app).post("/auth/login").send({ email: noPlanEmail, password });
-    expect(response.status).toBe(402);
-    expect(response.body.error.code).toBe("SUBSCRIPTION_REQUIRED");
+    expect(response.status).toBe(200);
+    expect(response.body.data.subscription.plan).toBe("FREE");
 
     await query(`DELETE FROM users WHERE email = $1`, [noPlanEmail]);
   });
@@ -145,6 +145,19 @@ describe("fluxo do usuario", () => {
     expect(response.status).toBe(201);
     blockId = response.body.data.id;
     expect(response.body.data.content.phone).toBe("5561999999999");
+  });
+
+  it("bloqueia tipo de bloco exclusivo do Pro", async () => {
+    const response = await request(app)
+      .post("/me/profile/blocks")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({
+        type: "LOCATION",
+        content: { address: "Brasilia - DF" },
+      });
+
+    expect(response.status).toBe(402);
+    expect(response.body.error.code).toBe("PLAN_FEATURE_LOCKED");
   });
 
   it("valida o content de acordo com o tipo do bloco", async () => {
@@ -215,7 +228,6 @@ describe("fluxo do usuario", () => {
         email: otherEmail,
         password,
         confirmPassword: password,
-        plan: "PRO",
       });
     const otherLogin = await request(app).post("/auth/login").send({ email: otherEmail, password });
 

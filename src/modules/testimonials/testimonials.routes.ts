@@ -11,20 +11,29 @@ const idParamSchema = z.object({ id: z.uuid("id invalido") });
 export const testimonialsRoutes = Router();
 
 testimonialsRoutes.get("/", async (req, res) => {
-  const testimonials = await testimonialsService.listTestimonials(req.profile!.id);
-  return ok(res, testimonials.map(presentTestimonial));
+  const testimonials = await testimonialsService.listTestimonialsForPlan(req.user!.id, req.profile!.id);
+  return ok(res, testimonials.map((testimonial) => presentTestimonial(testimonial)));
 });
 
 testimonialsRoutes.post("/", async (req, res) => {
   const input = createTestimonialSchema.parse(req.body);
-  const testimonial = await testimonialsService.createTestimonial(req.profile!.id, input);
+  const testimonial = await testimonialsService.createTestimonial(
+    req.user!.id,
+    req.profile!.id,
+    input,
+  );
   return ok(res, presentTestimonial(testimonial), 201);
 });
 
 testimonialsRoutes.patch("/:id", async (req, res) => {
   const { id } = idParamSchema.parse(req.params);
   const input = updateTestimonialSchema.parse(req.body);
-  const testimonial = await testimonialsService.updateTestimonial(req.profile!.id, id, input);
+  const testimonial = await testimonialsService.updateTestimonial(
+    req.user!.id,
+    req.profile!.id,
+    id,
+    input,
+  );
   return ok(res, presentTestimonial(testimonial));
 });
 

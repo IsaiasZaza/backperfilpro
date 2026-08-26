@@ -9,10 +9,7 @@ import { changePlanSchema, checkoutSchema, confirmSessionSchema } from "./billin
 export const billingRoutes = Router();
 
 billingRoutes.get("/plans", (_req, res) => {
-  return ok(res, {
-    trialDays: billingService.listPlans()[0]?.trialDays ?? 7,
-    plans: billingService.listPlans(),
-  });
+  return ok(res, { plans: billingService.listPlans() });
 });
 
 billingRoutes.post("/checkout", authLimiter, async (req, res) => {

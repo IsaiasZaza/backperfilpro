@@ -11,27 +11,27 @@ const idParamSchema = z.object({ id: z.uuid("id invalido") });
 export const blocksRoutes = Router();
 
 blocksRoutes.get("/", async (req, res) => {
-  const blocks = await blocksService.listBlocks(req.profile!.id);
-  return ok(res, blocks.map(presentBlock));
+  const blocks = await blocksService.listBlocksForPlan(req.user!.id, req.profile!.id);
+  return ok(res, blocks.map((block) => presentBlock(block)));
 });
 
 blocksRoutes.post("/", async (req, res) => {
   const input = createBlockSchema.parse(req.body);
-  const block = await blocksService.createBlock(req.profile!.id, input);
+  const block = await blocksService.createBlock(req.user!.id, req.profile!.id, input);
   return ok(res, presentBlock(block), 201);
 });
 
 // precisa vir antes de /:id para nao ser confundido com um id
 blocksRoutes.put("/reorder", async (req, res) => {
   const items = reorderBlocksSchema.parse(req.body);
-  const blocks = await blocksService.reorderBlocks(req.profile!.id, items);
-  return ok(res, blocks.map(presentBlock));
+  const blocks = await blocksService.reorderBlocks(req.user!.id, req.profile!.id, items);
+  return ok(res, blocks.map((block) => presentBlock(block)));
 });
 
 blocksRoutes.patch("/:id", async (req, res) => {
   const { id } = idParamSchema.parse(req.params);
   const input = updateBlockSchema.parse(req.body);
-  const block = await blocksService.updateBlock(req.profile!.id, id, input);
+  const block = await blocksService.updateBlock(req.user!.id, req.profile!.id, id, input);
   return ok(res, presentBlock(block));
 });
 

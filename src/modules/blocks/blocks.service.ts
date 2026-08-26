@@ -2,6 +2,8 @@ import type { z } from "zod";
 import { query, queryOne, withTransaction } from "../../db/client";
 import type { Block } from "../../db/types";
 import { badRequest, notFound } from "../../lib/errors";
+import { resolveSubscription } from "../billing/billing.service";
+import { assertCanCreateBlock, assertCanMutateBlock, filterBlocksForPlan } from "../billing/entitlements";
 import type { createBlockSchema, reorderBlocksSchema, updateBlockSchema } from "./blocks.schemas";
 import { parseBlockContent } from "./blocks.schemas";
 
@@ -15,12 +17,23 @@ function mapBlock(row: Block): Block {
   };
 }
 
+async function planOf(userId: string) {
+  const subscription = await resolveSubscription(userId);
+  return subscription?.plan ?? "FREE";
+}
+
 export async function listBlocks(profileId: string) {
   const rows = await query<Block>(
     `SELECT * FROM blocks WHERE "profileId" = $1 ORDER BY "sortOrder" ASC`,
     [profileId],
   );
   return rows.map(mapBlock);
+}
+
+/** Lista que o editor pode ver/editar no plano atual. O restante fica no banco para um upgrade. */
+export async function listBlocksForPlan(userId: string, profileId: string) {
+  const plan = await planOf(userId);
+  return filterBlocksForPlan(plan, await listBlocks(profileId));
 }
 
 async function findOwnedBlock(profileId: string, blockId: string) {
@@ -40,7 +53,15 @@ async function nextSortOrder(profileId: string) {
   return last ? last.sortOrder + 1 : 0;
 }
 
-export async function createBlock(profileId: string, input: z.infer<typeof createBlockSchema>) {
+export async function createBlock(
+  userId: string,
+  profileId: string,
+  input: z.infer<typeof createBlockSchema>,
+) {
+  const plan = await planOf(userId);
+  const existing = await listBlocks(profileId);
+  assertCanCreateBlock(plan, input.type, filterBlocksForPlan(plan, existing).length);
+
   const content = parseBlockContent(input.type, input.content);
   const sortOrder = input.sortOrder ?? (await nextSortOrder(profileId));
 
@@ -62,11 +83,17 @@ export async function createBlock(profileId: string, input: z.infer<typeof creat
 }
 
 export async function updateBlock(
+  userId: string,
   profileId: string,
   blockId: string,
   input: z.infer<typeof updateBlockSchema>,
 ) {
-  const block = await findOwnedBlock(profileId, blockId);
+  const plan = await planOf(userId);
+  const blocks = await listBlocks(profileId);
+  const block = blocks.find((item) => item.id === blockId);
+  if (!block) throw notFound("Bloco nao encontrado", "BLOCK_NOT_FOUND");
+
+  assertCanMutateBlock(plan, block, blocks);
 
   const title = input.title !== undefined ? input.title : block.title;
   const sortOrder = input.sortOrder !== undefined ? input.sortOrder : block.sortOrder;
@@ -97,6 +124,7 @@ export async function deleteBlock(profileId: string, blockId: string) {
 }
 
 export async function reorderBlocks(
+  userId: string,
   profileId: string,
   items: z.infer<typeof reorderBlocksSchema>,
 ) {
@@ -119,5 +147,5 @@ export async function reorderBlocks(
     }
   });
 
-  return listBlocks(profileId);
+  return listBlocksForPlan(userId, profileId);
 }

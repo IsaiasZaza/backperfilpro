@@ -13,26 +13,51 @@ export const usernameSchema = z
     "Use apenas letras minusculas, numeros, hifen e underline (comecando e terminando com letra ou numero)",
   );
 
+export const ATMOSPHERE_VALUES = [
+  "none",
+  "claw",
+  "comic",
+  "arc",
+  "symbiote",
+  "storm",
+  "inferno",
+  "cosmic",
+] as const;
+
+function normalizeThemeInput(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const raw = value as Record<string, unknown>;
+  const atmosphere = raw.atmosphere;
+  return {
+    ...raw,
+    atmosphere:
+      typeof atmosphere === "string" ? atmosphere.trim().toLowerCase() || "none" : atmosphere,
+  };
+}
+
 /** Aparencia da pagina publica. O FE decide como renderizar. */
-export const themeSchema = z.object({
-  primaryColor: z
-    .string()
-    .regex(/^#[0-9a-fA-F]{6}$/, "Cor deve estar no formato #RRGGBB")
-    .optional(),
-  backgroundColor: z
-    .string()
-    .regex(/^#[0-9a-fA-F]{6}$/, "Cor deve estar no formato #RRGGBB")
-    .optional(),
-  textColor: z
-    .string()
-    .regex(/^#[0-9a-fA-F]{6}$/, "Cor deve estar no formato #RRGGBB")
-    .optional(),
-  buttonStyle: z.enum(["rounded", "pill", "square"]).optional(),
-  font: z.enum(["sans", "serif", "mono"]).optional(),
-  atmosphere: z
-    .enum(["none", "claw", "comic", "arc", "symbiote", "storm", "inferno", "cosmic"])
-    .optional(),
-});
+export const themeSchema = z.preprocess(
+  normalizeThemeInput,
+  z
+    .object({
+      primaryColor: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/, "Cor deve estar no formato #RRGGBB")
+        .optional(),
+      backgroundColor: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/, "Cor deve estar no formato #RRGGBB")
+        .optional(),
+      textColor: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/, "Cor deve estar no formato #RRGGBB")
+        .optional(),
+      buttonStyle: z.enum(["rounded", "pill", "square"]).optional(),
+      font: z.enum(["sans", "serif", "mono"]).optional(),
+      atmosphere: z.enum(ATMOSPHERE_VALUES).nullish(),
+    })
+    .passthrough(),
+);
 
 export const updateProfileSchema = z
   .object({

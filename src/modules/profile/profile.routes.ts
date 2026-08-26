@@ -8,6 +8,7 @@ import { loadProfile } from "../../middlewares/load-profile";
 import { blocksRoutes } from "../blocks/blocks.routes";
 import { servicesRoutes } from "../services/services.routes";
 import { testimonialsRoutes } from "../testimonials/testimonials.routes";
+import { showBrandingFor, sanitizeThemeForPlan } from "../billing/entitlements";
 import { presentProfile, presentPublicPage } from "./profile.presenter";
 import * as profileService from "./profile.service";
 import { updateProfileSchema } from "./profile.schemas";
@@ -18,13 +19,28 @@ export const profileRoutes = Router();
 profileRoutes.use(authenticate, requireActiveSubscription, loadProfile);
 
 profileRoutes.get("/", async (req, res) => {
-  return ok(res, presentProfile(req.profile!));
+  const plan = req.subscription!.plan;
+  const profile = req.profile!;
+  return ok(
+    res,
+    presentProfile({
+      ...profile,
+      theme: sanitizeThemeForPlan(plan, profile.theme),
+    }),
+  );
 });
 
 profileRoutes.put("/", async (req, res) => {
   const input = updateProfileSchema.parse(req.body);
   const profile = await profileService.updateProfile(req.user!.id, input);
-  return ok(res, presentProfile(profile));
+  const plan = req.subscription!.plan;
+  return ok(
+    res,
+    presentProfile({
+      ...profile,
+      theme: sanitizeThemeForPlan(plan, profile.theme),
+    }),
+  );
 });
 
 profileRoutes.post("/publish", async (req, res) => {
@@ -46,7 +62,7 @@ profileRoutes.get("/preview", async (req, res) => {
       {
         ...profile,
         plan: req.subscription?.plan ?? profile.plan,
-        showBranding: req.subscription?.plan !== "PREMIUM",
+        showBranding: showBrandingFor(req.subscription?.plan ?? profile.plan),
       },
       false,
     ),

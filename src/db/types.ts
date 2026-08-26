@@ -12,7 +12,7 @@ export type BlockType =
   | "TESTIMONIALS"
   | "LOCATION";
 
-export type Plan = "PRO" | "PREMIUM";
+export type Plan = "FREE" | "PRO" | "PREMIUM";
 
 export type SubscriptionStatus =
   | "INCOMPLETE"
@@ -48,6 +48,7 @@ export type Subscription = {
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
   canceledAt: Date | null;
+  lastStripeEventCreated: number | null;
   createdAt: Date;
   updatedAt: Date;
 };

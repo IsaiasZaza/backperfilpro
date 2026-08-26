@@ -157,7 +157,7 @@ const publicPageSchema = {
     theme: { type: "object" },
     status: { type: "string", enum: ["DRAFT", "PUBLISHED"] },
     publishedAt: { type: "string", format: "date-time", nullable: true },
-    plan: { type: "string", enum: ["PRO", "PREMIUM"], nullable: true },
+    plan: { type: "string", enum: ["FREE", "PRO", "PREMIUM"], nullable: true },
     showBranding: { type: "boolean" },
     blocks: { type: "array", items: blockSchema },
     services: { type: "array", items: serviceSchema },
@@ -168,7 +168,7 @@ const publicPageSchema = {
 const subscriptionSchema = {
   type: "object",
   properties: {
-    plan: { type: "string", enum: ["PRO", "PREMIUM"], nullable: true },
+    plan: { type: "string", enum: ["FREE", "PRO", "PREMIUM"], nullable: true },
     status: {
       type: "string",
       nullable: true,
@@ -221,11 +221,11 @@ export const openapiDocument = {
     title: "PerfilPro API",
     version: "1.0.0",
     description: [
-      "API do PerfilPro: autenticacao, assinaturas Stripe (Pro/Premium com 7 dias gratis), builder de pagina (blocos) e pagina publica estilo Linktree.",
+      "API do PerfilPro: autenticacao, plano Free no cadastro, upgrade Stripe (Pro/Premium), builder de pagina (blocos) e pagina publica estilo Linktree.",
       "",
       "**Formato das respostas**: sempre `{ \"data\": ..., \"error\": null }` ou `{ \"data\": null, \"error\": { \"code\": \"...\", \"message\": \"...\" } }`.",
       "",
-      "**Planos**: o cadastro exige `plan` (`PRO` ou `PREMIUM`) e devolve `checkoutUrl` da Stripe. O login so e liberado com assinatura `TRIALING`, `ACTIVE` ou `PAST_DUE`.",
+      "**Planos**: o cadastro entra no Free (com token). Pro e Premium sao via checkout Stripe. Limites do Free sao aplicados no backend.",
       "",
       "**Autenticacao**: apos o login a API devolve `accessToken` no corpo e grava os cookies httpOnly `pp_access_token` e `pp_refresh_token`.",
       "No Swagger, clique em *Authorize* e cole o `accessToken`.",
@@ -236,7 +236,7 @@ export const openapiDocument = {
   servers: [{ url: env.APP_URL }],
   tags: [
     { name: "Auth", description: "Cadastro, login, sessao e recuperacao de senha" },
-    { name: "Billing", description: "Planos Pro/Premium, checkout Stripe, trial de 7 dias e portal" },
+    { name: "Billing", description: "Planos Free/Pro/Premium, checkout Stripe e portal" },
     { name: "Perfil", description: "Dados da pagina do usuario logado" },
     { name: "Blocos", description: "Builder estilo WordPress: blocos da pagina" },
     { name: "Servicos" },
@@ -263,19 +263,18 @@ export const openapiDocument = {
     "/auth/register": {
       post: {
         tags: ["Auth"],
-        summary: "Cria a conta, escolhe o plano e abre o checkout (7 dias gratis)",
+        summary: "Cria a conta no plano Free e ja autentica",
         description:
-          "Nao devolve token. Depois do pagamento/trial na Stripe, use POST /auth/login. Em teste o trial e ativado localmente.",
+          "Devolve accessToken e subscription Free. Upgrade para Pro/Premium e feito depois em POST /billing/checkout.",
         security: [],
         requestBody: body({
           type: "object",
-          required: ["name", "email", "password", "confirmPassword", "plan"],
+          required: ["name", "email", "password", "confirmPassword"],
           properties: {
             name: { type: "string", example: "Maria Oliveira" },
             email: { type: "string", example: "maria@demo.com" },
             password: { type: "string", minLength: 8, example: "Demo1234!" },
             confirmPassword: { type: "string", example: "Demo1234!" },
-            plan: { type: "string", enum: ["PRO", "PREMIUM"], example: "PRO" },
           },
         }),
         responses: {
@@ -285,11 +284,7 @@ export const openapiDocument = {
               type: "object",
               properties: {
                 user: userSchema,
-                checkoutUrl: { type: "string", nullable: true },
-                sessionId: { type: "string", nullable: true },
-                plan: { type: "string", enum: ["PRO", "PREMIUM"] },
-                trialGranted: { type: "boolean" },
-                trialDays: { type: "integer", example: 7 },
+                accessToken: { type: "string" },
                 subscription: subscriptionSchema,
               },
             }),
@@ -303,7 +298,7 @@ export const openapiDocument = {
     "/auth/login": {
       post: {
         tags: ["Auth"],
-        summary: "Login com e-mail e senha (exige plano ativo ou trial)",
+        summary: "Login com e-mail e senha",
         security: [],
         requestBody: body({
           type: "object",
@@ -402,7 +397,7 @@ export const openapiDocument = {
     "/billing/plans": {
       get: {
         tags: ["Billing"],
-        summary: "Lista os planos Pro e Premium (publico)",
+        summary: "Lista os planos Free, Pro e Premium (publico)",
         security: [],
         responses: { 200: json("Planos", success({ type: "object" })) },
       },
@@ -411,9 +406,9 @@ export const openapiDocument = {
     "/billing/checkout": {
       post: {
         tags: ["Billing"],
-        summary: "Cria a sessao de checkout da Stripe (login ainda nao liberado)",
+        summary: "Cria a sessao de checkout da Stripe para Pro ou Premium",
         description:
-          "Use apos o cadastro ou quando a assinatura expirou. Trial de 7 dias so na primeira assinatura. Cobra o cartao depois do trial.",
+          "Upgrade a partir do Free (ou assinatura expirada). Nao ha trial: a Stripe cobra na hora.",
         security: [],
         requestBody: body({
           type: "object",

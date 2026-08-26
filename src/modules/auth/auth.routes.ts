@@ -16,9 +16,10 @@ export const authRoutes = Router();
 
 authRoutes.post("/register", authLimiter, async (req, res) => {
   const input = registerSchema.parse(req.body);
-  const payload = await authService.register(input);
+  const { user, accessToken, refreshToken, subscription } = await authService.register(input);
 
-  return ok(res, payload, 201);
+  setAuthCookies(res, accessToken, refreshToken);
+  return ok(res, { user, accessToken, subscription }, 201);
 });
 
 authRoutes.post("/login", authLimiter, async (req, res) => {

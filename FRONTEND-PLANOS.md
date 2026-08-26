@@ -1,6 +1,6 @@
-# PerfilPro — como montar planos, trial e login no Frontend
+# PerfilPro — como montar planos e login no Frontend
 
-Guia para implementar no Next.js (App Router) o que a API já entrega: **dois planos (Pro e Premium)**, **7 dias grátis**, checkout Stripe e **login só com assinatura ativa**.
+Guia para implementar no Next.js (App Router) o que a API já entrega: **plano Free no cadastro**, **Pro e Premium via Stripe (sem trial)** e **limites de feature no backend**.
 
 Contrato técnico complementar: `API-FRONTEND.md`  
 Swagger: `http://localhost:3333/docs`
@@ -26,17 +26,18 @@ O backend já libera CORS em `http://localhost:3000`.
 Fluxo feliz:
 
 ```
-/planos  →  /cadastro?plan=PRO  →  Stripe Checkout (7 dias grátis)
-       →  /login?checkout=success  →  POST /auth/login  →  /app
+/cadastro  →  POST /auth/register (Free + token)  →  /app
+/app/assinatura  →  Stripe Checkout (Pro/Premium)  →  /app
 ```
 
 Regras que o front precisa respeitar:
 
-1. **Cadastro não loga.** `POST /auth/register` **não** devolve `accessToken`.
-2. **Login só com plano.** Sem trial/assinatura a API responde **402** `SUBSCRIPTION_REQUIRED`.
-3. Trial de **7 dias** só na **primeira** assinatura. O cartão é pedido no checkout; a Stripe cobra depois.
-4. Sem plano ativo, a página pública do dono some (`GET /p/:username` → 404).
+1. **Cadastro já loga.** `POST /auth/register` devolve `accessToken` e `subscription.plan = "FREE"`.
+2. **Login não exige plano pago.** Free entra no painel.
+3. **Não existe trial.** Upgrade cobra na hora via Stripe.
+4. Cancelar Pro/Premium **volta para Free**; a página pública continua no ar, com limites e marca.
 5. Premium esconde a marca PerfilPro (`showBranding: false`).
+6. Ultrapassar limite do plano: **402** `PLAN_LIMIT_REACHED` ou `PLAN_FEATURE_LOCKED` (use `subscription.entitlements` para travar a UI).
 
 ---
 
@@ -81,7 +82,7 @@ function isSubscriptionRequired(err: unknown) {
 
 ```ts
 // types/billing.ts
-export type PlanId = "PRO" | "PREMIUM";
+export type PlanId = "FREE" | "PRO" | "PREMIUM";
 
 export type SubscriptionStatus =
   | "INCOMPLETE"
@@ -95,6 +96,9 @@ export type SubscriptionStatus =
 
 export type Entitlements = {
   maxBlocks: number | null;
+  maxServices: number | null;
+  maxTestimonials: number | null;
+  allowedBlockTypes: string[] | null;
   customTheme: boolean;
   removeBranding: boolean;
   prioritySupport: boolean;
@@ -108,7 +112,6 @@ export type Plan = {
   priceFormatted: string; // "R$ 20,00"
   currency: "BRL";
   interval: "month";
-  trialDays: number;
   features: string[];
   entitlements: Entitlements;
 };
@@ -125,18 +128,18 @@ export type Subscription = {
   cancelAtPeriodEnd: boolean;
   canceledAt: string | null;
   entitlements: Entitlements | null;
-  trialDays?: number;
 };
 ```
 
 Catálogo atual (a API é a fonte da verdade; não hardcode preço no botão):
 
-| Plano | Preço | Trial | Destaque de produto |
-|---|---|---|---|
-| **Pro** | R$ 20,00/mês | 7 dias | página, blocos, serviços, depoimentos, temas |
-| **Premium** | R$ 39,00/mês | 7 dias | tudo do Pro + sem marca PerfilPro + suporte prioritário |
+| Plano | Preço | Destaque de produto |
+|---|---|---|
+| **Free** | R$ 0 | página pública, 4 blocos, 2 serviços, 2 depoimentos, marca PerfilPro |
+| **Pro** | R$ 20,00/mês | ilimitado, todos os blocos, temas |
+| **Premium** | R$ 39,00/mês | tudo do Pro + sem marca PerfilPro + suporte prioritário |
 
-`grantsAccess` é `true` quando o status é `TRIALING`, `ACTIVE` ou `PAST_DUE`.
+`grantsAccess` é `true` quando o status é `ACTIVE`, `TRIALING` (legado) ou `PAST_DUE`.
 
 ---
 
@@ -145,14 +148,12 @@ Catálogo atual (a API é a fonte da verdade; não hardcode preço no botão):
 ### 5.1 `/planos` — catálogo
 
 ```ts
-const { trialDays, plans } = await api<{ trialDays: number; plans: Plan[] }>(
-  "/billing/plans",
-);
+const { plans } = await api<{ plans: Plan[] }>("/billing/plans");
 ```
 
 UI:
 
-- Badge no topo: **“7 dias grátis”** (`trialDays`)
+- Badge no topo: **“Comece grátis”**
 - Dois cards (Pro / Premium), Premium marcado como recomendado
 - Lista `plan.features`
 - Preço: `plan.priceFormatted` + “/mês”
@@ -163,23 +164,14 @@ Não invente features: use o array que a API mandou.
 
 ---
 
-### 5.2 `/cadastro` — criar conta + ir para a Stripe
+### 5.2 `/cadastro` — criar conta Free e entrar
 
-Query: `?plan=PRO` (default `PRO` se vier vazio).
-
-Formulário:
-
-- nome, e-mail, senha, confirmar senha
-- plano visível (cards ou radio). Pode trocar na hora.
+Formulário: nome, e-mail, senha, confirmar senha. Sem escolha de plano.
 
 ```ts
 type RegisterResponse = {
   user: { id: string; name: string; email: string };
-  checkoutUrl: string | null;
-  sessionId: string | null;
-  plan: PlanId;
-  trialGranted: boolean;
-  trialDays: number;
+  accessToken: string;
   subscription: Subscription;
 };
 
@@ -190,21 +182,10 @@ const data = await api<RegisterResponse>("/auth/register", {
     email,
     password,
     confirmPassword,
-    plan, // "PRO" | "PREMIUM"  — obrigatório
   }),
 });
-```
 
-**Não existe cookie/token aqui.** Depois do `201`:
-
-```ts
-if (data.checkoutUrl) {
-  window.location.href = data.checkoutUrl; // Stripe Checkout
-} else {
-  // Dev sem chaves Stripe: o backend ativa o trial local.
-  // Mande para o login com um aviso de "conta criada, 7 dias grátis".
-  router.push("/login?checkout=local-trial");
-}
+router.replace("/app");
 ```
 
 Erros:
@@ -222,7 +203,7 @@ Se a pessoa já cadastrou e abandonou a Stripe, **não** chame register de novo.
 
 A Stripe coleta o cartão mesmo no trial. Copy útil no card do plano:
 
-> 7 dias grátis. Cancele quando quiser. Só cobramos depois do período de teste.
+> Comece grátis. Faça upgrade quando quiser. Sem cartão no cadastro.
 
 URLs que o backend já configura:
 
@@ -416,7 +397,7 @@ Se o dono perder o plano, essa rota vira 404. Não mostre “assinatura expirada
 **Cadastro**
 
 - [ ] Plano vem da query e pode ser alterado
-- [ ] Botão “Começar 7 dias grátis”
+- [ ] Botão “Começar grátis”
 - [ ] Loading no redirect para a Stripe
 - [ ] E-mail já usado → login / retomar checkout
 
@@ -470,7 +451,7 @@ Guarde o `accessToken` só se precisar (Swagger/mobile). No browser, o cookie ht
 Se `STRIPE_SECRET_KEY` / price IDs estiverem vazios no backend:
 
 - `checkoutUrl` vem `null`
-- o trial de 7 dias é ativado **no banco**
+- o plano Free é ativado **no banco**
 - depois do cadastro, a pessoa **já consegue logar**
 
 Quando as chaves existirem, `checkoutUrl` aponta para a Stripe de verdade. O front só precisa do `if (checkoutUrl) redirect; else login`.
@@ -480,7 +461,7 @@ Quando as chaves existirem, `checkoutUrl` aponta para a Stripe de verdade. O fro
 ## 10. Copy pronta
 
 **Hero dos planos**  
-“Sua página profissional no ar em minutos. 7 dias grátis.”
+“Sua página profissional no ar em minutos. Comece grátis.”
 
 **Pro**  
 “Para começar: links, WhatsApp, serviços e depoimentos.”
@@ -492,7 +473,7 @@ Quando as chaves existirem, `checkoutUrl` aponta para a Stripe de verdade. O fro
 “Começar grátis” (não “Assinar agora”, no trial)
 
 **Rodapé do card**  
-“Cancele quando quiser. Cobrança só depois dos 7 dias.”
+“Cancele quando quiser. O Free continua no ar, com limites.”
 
 **402 no login**  
 “Sua conta está pronta. Escolha Pro ou Premium para entrar.”
