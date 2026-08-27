@@ -11,6 +11,7 @@ import { errorHandler, notFoundHandler } from "./middlewares/error-handler";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { billingRoutes } from "./modules/billing/billing.routes";
 import { handleStripeWebhook } from "./modules/billing/billing.service";
+import { driveMediaRoutes } from "./modules/media/drive.routes";
 import { profileRoutes } from "./modules/profile/profile.routes";
 import { publicRoutes } from "./modules/public/public.routes";
 
@@ -51,6 +52,7 @@ export function createApp() {
   app.use("/auth", authRoutes);
   app.use("/billing", billingRoutes);
   app.use("/me/profile", profileRoutes);
+  app.use("/media/drive", driveMediaRoutes);
   app.use(publicRoutes);
 
   app.use("/docs", swaggerUi.serve, swaggerUi.setup(openapiDocument));

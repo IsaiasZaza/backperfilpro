@@ -1,4 +1,5 @@
 import type { Block, Profile, Plan, ServiceItem, Testimonial } from "../../db/types";
+import { publicDriveImageUrl, rewriteDriveImageFields } from "../../lib/sanitize";
 
 type FullProfile = Profile & {
   blocks: Block[];
@@ -12,7 +13,7 @@ export const presentBlock = (block: Block) => ({
   id: block.id,
   type: block.type,
   title: block.title,
-  content: block.content,
+  content: rewriteDriveImageFields(block.content),
   sortOrder: block.sortOrder,
   isVisible: block.isVisible,
 });
@@ -47,7 +48,7 @@ export const presentProfile = (profile: Profile) => ({
   displayName: profile.displayName,
   headline: profile.headline,
   bio: profile.bio,
-  avatarUrl: profile.avatarUrl,
+  avatarUrl: publicDriveImageUrl(profile.avatarUrl) ?? profile.avatarUrl,
   location: profile.location,
   theme: profile.theme,
   status: profile.status,
@@ -72,7 +73,7 @@ export function presentPublicPage(profile: FullProfile, onlyVisible = true) {
     displayName: profile.displayName,
     headline: profile.headline,
     bio: profile.bio,
-    avatarUrl: profile.avatarUrl,
+    avatarUrl: publicDriveImageUrl(profile.avatarUrl) ?? profile.avatarUrl,
     location: profile.location,
     theme: profile.theme,
     status: profile.status,
