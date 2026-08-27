@@ -42,6 +42,30 @@ export async function uploadPublicObject(params: {
       message: error.message,
       path: params.path,
     });
+
+    const message = error.message.toLowerCase();
+    if (message.includes("bucket") && (message.includes("not found") || message.includes("does not exist"))) {
+      throw badRequest(
+        `Bucket "${env.SUPABASE_STORAGE_BUCKET}" nao existe. Crie um bucket publico com esse nome no Supabase Storage.`,
+        "STORAGE_BUCKET_NOT_FOUND",
+      );
+    }
+    if (
+      message.includes("invalid") &&
+      (message.includes("api key") || message.includes("jwt") || message.includes("token"))
+    ) {
+      throw badRequest(
+        "Chave do Supabase invalida. No Railway use SUPABASE_SERVICE_ROLE_KEY (service_role), nao a publishable.",
+        "STORAGE_INVALID_KEY",
+      );
+    }
+    if (message.includes("row-level security") || message.includes("permission") || message.includes("not allowed")) {
+      throw badRequest(
+        "Sem permissao no Storage. Use a service_role no backend e deixe o bucket avatars publico para leitura.",
+        "STORAGE_FORBIDDEN",
+      );
+    }
+
     throw badGateway("Nao foi possivel salvar a foto de perfil. Tente novamente.");
   }
 
