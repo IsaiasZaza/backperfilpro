@@ -182,7 +182,7 @@ export const updateProfileSchema = z.preprocess(
   z
     .object({
       username: usernameSchema.optional(),
-      displayName: z.string().trim().min(2).max(80).optional(),
+      displayName: z.string().trim().min(2).max(80).nullish(),
       headline: z.string().trim().max(120).nullish(),
       bio: z.string().trim().max(500).nullish(),
       avatarUrl: urlSchema.nullish(),
