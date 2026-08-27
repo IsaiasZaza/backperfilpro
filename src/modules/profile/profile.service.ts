@@ -1,8 +1,15 @@
 import type { z } from "zod";
 import { query, queryOne } from "../../db/client";
 import type { Block, Profile, ServiceItem, Testimonial } from "../../db/types";
-import { badRequest, conflict, forbidden, notFound } from "../../lib/errors";
+import { AppError, badGateway, badRequest, conflict, forbidden, notFound } from "../../lib/errors";
 import { logger } from "../../lib/logger";
+import {
+  avatarObjectPath,
+  objectPathFromPublicUrl,
+  removeObject,
+  uploadPublicObject,
+} from "../../lib/storage";
+import { processAvatarImage, removeLocalAvatarIfOwned } from "../../lib/upload";
 import { isReservedUsername } from "../../lib/username";
 import { grantsAccess, resolveSubscription } from "../billing/billing.service";
 import {
@@ -140,11 +147,53 @@ export async function updateProfile(userId: string, input: z.infer<typeof update
   return mapProfile(updated!);
 }
 
-export async function updateAvatar(profileId: string, avatarUrl: string) {
+export type AvatarUpload = {
+  buffer: Buffer;
+  mimetype: string;
+  originalname: string;
+  size: number;
+};
+
+async function replaceStoredAvatar(userId: string, previousUrl: string | null) {
+  const nextPath = avatarObjectPath(userId);
+  const previousPath = objectPathFromPublicUrl(previousUrl);
+
+  if (previousPath && previousPath !== nextPath) {
+    await removeObject(previousPath);
+  }
+
+  removeLocalAvatarIfOwned(previousUrl);
+  return nextPath;
+}
+
+export async function updateAvatar(userId: string, file: AvatarUpload) {
+  const profile = await getProfileByUserId(userId);
+  const image = await processAvatarImage(file.buffer);
+  const objectPath = await replaceStoredAvatar(userId, profile.avatarUrl);
+
+  let stored;
+  try {
+    stored = await uploadPublicObject({
+      path: objectPath,
+      body: image,
+      contentType: "image/webp",
+      upsert: true,
+    });
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    logger.error("falha ao enviar avatar", {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw badGateway("Nao foi possivel salvar a foto de perfil. Tente novamente.");
+  }
+
+  const avatarUrl = `${stored.publicUrl}?v=${Date.now()}`;
   const updated = await queryOne<Profile>(
     `UPDATE profiles SET "avatarUrl" = $1, "updatedAt" = NOW() WHERE id = $2 RETURNING *`,
-    [avatarUrl, profileId],
+    [avatarUrl, profile.id],
   );
+
   return mapProfile(updated!);
 }
 

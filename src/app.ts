@@ -22,7 +22,7 @@ export function createApp() {
 
   app.use(
     helmet({
-      // permite que o FE em outro dominio carregue as imagens de /uploads
+      // avatares novos vêm do Supabase; /uploads permanece para fotos antigas em disco
       crossOriginResourcePolicy: { policy: "cross-origin" },
     }),
   );

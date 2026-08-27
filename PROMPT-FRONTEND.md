@@ -1,6 +1,6 @@
-# Prompt para o frontend — plano Free (sem trial)
+# Prompt para o frontend — PerfilPro
 
-Cole este arquivo no chat do agente/dev do **Next.js**. A API do PerfilPro mudou. Implemente o plano Free, remova o trial e respeite os limites. Não invente campos. A API é a fonte da verdade.
+Cole este arquivo no chat do agente/dev do **Next.js**. A API do PerfilPro mudou. Não invente campos. A API é a fonte da verdade.
 
 - Base URL: `http://localhost:3333`
 - CORS: `http://localhost:3000` com `credentials: "include"`
@@ -15,9 +15,168 @@ Envelope de toda resposta:
 }
 ```
 
+Env do Next.js (só isso):
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:3333
+```
+
+**Proibido no frontend:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_*` para upload. O avatar **não** vai direto ao Supabase. O front envia o arquivo para a API.
+
 ---
 
-## O que mudou (obrigatório)
+## NOVO (obrigatório): foto de perfil / avatar
+
+### O que mudou
+
+Antes o editor mandava `avatarUrl` (string https) no `PUT /me/profile`.
+
+Agora o fluxo oficial é:
+
+```
+<input type="file"> → FormData campo `file` → POST /me/profile/avatar → { avatarUrl, profile }
+```
+
+A API envia ao Supabase Storage, converte para **WEBP 256x256** e devolve a URL pública. Use **somente** o `avatarUrl` da resposta no `<img>`.
+
+### O que NÃO fazer
+
+- Não cole URL de Cloudinary/Unsplash/Imgur como fluxo principal de foto de perfil.
+- Não faça upload direto ao Supabase no browser.
+- Não exponha `SUPABASE_SERVICE_ROLE_KEY`.
+- Não confie no nome original do arquivo; o back ignora.
+- Não use `PATCH /users/:id`. Não existe essa rota. Tudo é `/me/profile/*` (o usuário só altera o próprio perfil).
+- Não mande `Content-Type: application/json` no upload. O browser precisa setar `multipart/form-data` com boundary.
+
+### Compatibilidade
+
+- Perfis que **já têm** `avatarUrl` (pravatar, Drive, URL antiga) **continuam funcionando**. Renderize a URL que vier no GET.
+- `PUT /me/profile` **ainda aceita** `avatarUrl` (legado). Não quebre quem ainda envia. O fluxo novo de troca de foto é o POST multipart.
+- Depois do upload, o GET `/me/profile` e a página pública já vêm com a URL nova.
+
+### Rota
+
+```
+POST /me/profile/avatar
+Auth: cookie ou Authorization: Bearer <token>
+Content-Type: multipart/form-data
+Campo: file   ← o nome do campo é `file`, não `avatar`
+```
+
+Arquivo:
+
+| Regra | Valor |
+|---|---|
+| Tipos | JPEG, JPG, PNG, WEBP |
+| Tamanho | máximo **1 MB** |
+| Campo | `file` |
+| Conversão | o back vira WEBP 256x256 (você não precisa redimensionar) |
+
+Resposta `201`:
+
+```ts
+{
+  data: {
+    avatarUrl: string; // use no <img src>
+    profile: Profile;  // perfil já atualizado
+  };
+  error: null;
+}
+```
+
+### Helper de upload
+
+O `api()` JSON **não serve** para multipart se ele força `Content-Type: application/json`. Crie um helper separado:
+
+```ts
+const API_URL = process.env.NEXT_PUBLIC_API_URL!;
+
+type ApiOk<T> = { data: T; error: null };
+type ApiErr = { data: null; error: { code: string; message: string; details?: unknown } };
+
+export async function uploadAvatar(file: File) {
+  const form = new FormData();
+  form.append("file", file); // NÃO use outro nome de campo
+
+  const res = await fetch(`${API_URL}/me/profile/avatar`, {
+    method: "POST",
+    credentials: "include",
+    body: form,
+    // NÃO setar Content-Type
+  });
+
+  const json = (await res.json()) as ApiOk<{ avatarUrl: string; profile: Profile }> | ApiErr;
+
+  if (!res.ok || json.error) {
+    const err = new Error(json.error?.message ?? "Erro no upload") as Error & {
+      code?: string;
+      status?: number;
+    };
+    err.code = json.error?.code;
+    err.status = res.status;
+    throw err;
+  }
+
+  return json.data;
+}
+```
+
+### UI sugerida no editor de perfil
+
+1. Mostrar preview circular com `profile.avatarUrl` (pode ser `null`).
+2. Botão “Alterar foto” abre `<input type="file" accept="image/jpeg,image/png,image/webp" />`.
+3. Validar no client **antes** de enviar (UX): tipo + tamanho ≤ 1 MB. O back valida de novo.
+4. Loading no botão enquanto o POST roda.
+5. No sucesso: `setProfile(data.profile)` e `<img src={data.avatarUrl} />`.
+6. A URL pode vir com `?v=timestamp` — isso é cache-bust. Use a string inteira. Não remova o query.
+7. Se o usuário salvar o resto do perfil (`PUT /me/profile`), **não precisa** reenviar a foto. O avatar já está no banco.
+
+Preview local (opcional, antes do POST):
+
+```ts
+const previewUrl = URL.createObjectURL(file);
+// mostrar no <img>, e URL.revokeObjectURL(previewUrl) depois
+```
+
+Isso é só preview. A foto oficial só existe depois do `201`.
+
+### Erros do upload
+
+| status | code | UI |
+|---|---|---|
+| 400 | `FILE_REQUIRED` | “Envie uma imagem” |
+| 400 | `INVALID_FILE_TYPE` | “Use JPEG, PNG ou WEBP” |
+| 401 | `UNAUTHORIZED` | redirecionar ao login |
+| 413 | `FILE_TOO_LARGE` | “A imagem deve ter no máximo 1 MB” |
+| 502 | `STORAGE_ERROR` | “Não foi possível salvar a foto. Tente de novo.” |
+| 400 | `STORAGE_NOT_CONFIGURED` | erro de infra; toast genérico |
+
+### Página pública e bloco HERO
+
+- `GET /p/:username` e `GET /me/profile/preview` já devolvem `avatarUrl`.
+- Bloco `HERO` ainda pode ter `content.avatarUrl`. Se o HERO usar a foto do perfil, prefira a do perfil (`profile.avatarUrl`), não peça URL no editor.
+- `<img src={avatarUrl} alt="" />` — a URL é pública (Supabase ou URL antiga). Sem Authorization no `<img>`.
+
+### PUT /me/profile
+
+Continua igual para username, displayName, bio, location, theme.
+
+```json
+{
+  "username": "maria-oliveira",
+  "displayName": "Maria Oliveira",
+  "headline": "Lash Designer",
+  "bio": "Atendo com hora marcada",
+  "location": "Brasília - DF",
+  "theme": { "primaryColor": "#7C3AED", "buttonStyle": "pill", "font": "sans" }
+}
+```
+
+Pode omitir `avatarUrl`. Se o form antigo ainda envia `avatarUrl` copiado do GET, ok — não apaga a foto.
+
+---
+
+## O que mudou no plano (obrigatório)
 
 1. Cadastro **não escolhe plano pago**. Toda conta nasce **FREE** e **já loga**.
 2. **Não existe mais trial de 7 dias.** Sem badge “7 dias grátis”, sem `trialDays`, sem `trialGranted`.
@@ -240,7 +399,7 @@ Rotas do builder (todas auth):
 - `GET/PUT /me/profile`
 - `POST /me/profile/publish` | `/unpublish`
 - `GET /me/profile/preview`
-- `POST /me/profile/avatar` (multipart campo `file`)
+- `POST /me/profile/avatar` (multipart campo `file` → Supabase Storage; use o `avatarUrl` devolvido)
 - `GET/POST /me/profile/blocks` · `PATCH/DELETE /me/profile/blocks/:id` · `PUT /me/profile/blocks/reorder`
 - `GET/POST /me/profile/services`
 - `GET/POST /me/profile/testimonials`
@@ -319,6 +478,18 @@ Se o dono perder acesso de verdade (sem plano ativo), a rota continua 404.
 ---
 
 ## Checklist
+
+Foto de perfil:
+
+- [ ] Input `file` + `POST /me/profile/avatar` (campo `file`)
+- [ ] Sem `Content-Type: application/json` no upload
+- [ ] Sem chaves do Supabase no Next.js
+- [ ] Preview usa `data.avatarUrl` devolvido (incluindo `?v=`)
+- [ ] Erros `INVALID_FILE_TYPE` / `FILE_TOO_LARGE` / `STORAGE_ERROR`
+- [ ] URLs antigas de `avatarUrl` ainda renderizam
+- [ ] PUT do perfil não apaga a foto
+
+Plano Free:
 
 - [ ] Remover `plan` do cadastro
 - [ ] Register grava sessão e vai para `/app`

@@ -41,8 +41,10 @@ const errors = {
   403: json("Sem permissao", errorResponse),
   404: json("Nao encontrado", errorResponse),
   409: json("Conflito", errorResponse),
+  413: json("Arquivo grande demais", errorResponse),
   422: json("Erro de validacao", errorResponse),
   429: json("Muitas requisicoes", errorResponse),
+  502: json("Falha no storage", errorResponse),
 };
 
 const userSchema = {
@@ -509,7 +511,7 @@ export const openapiDocument = {
         tags: ["Perfil"],
         summary: "Atualiza dados do perfil",
         description:
-          "Regra do username: livre enquanto DRAFT; depois de publicado permite no maximo 1 troca.",
+          "Regra do username: livre enquanto DRAFT; depois de publicado permite no maximo 1 troca. `avatarUrl` ainda e aceito por compatibilidade; o fluxo preferido e POST /me/profile/avatar.",
         requestBody: body({
           type: "object",
           properties: {
@@ -568,18 +570,31 @@ export const openapiDocument = {
       post: {
         tags: ["Perfil"],
         summary: "Upload da foto de perfil (multipart, campo `file`)",
+        description: [
+          "Envia a imagem para o Supabase Storage (bucket de avatars).",
+          "Formatos: JPEG, PNG, WEBP. Limite: 1 MB.",
+          "A API converte para WEBP 256x256 e grava em `{userId}.webp`, substituindo a foto anterior.",
+          "Resposta: `{ avatarUrl, profile }`. Use `avatarUrl` no `<img>`.",
+        ].join(" "),
         requestBody: {
           required: true,
           content: {
             "multipart/form-data": {
               schema: {
                 type: "object",
+                required: ["file"],
                 properties: { file: { type: "string", format: "binary" } },
               },
             },
           },
         },
-        responses: { 201: json("Avatar salvo", success({ type: "object" })), 400: errors[400] },
+        responses: {
+          201: json("Avatar salvo", success({ type: "object" })),
+          400: errors[400],
+          401: errors[401],
+          413: errors[413],
+          502: errors[502],
+        },
       },
     },
 

@@ -29,6 +29,30 @@ npm run dev
 - API: http://localhost:3333
 - Swagger: http://localhost:3333/docs
 
+### Avatar (Supabase Storage)
+
+No `.env`, além da `DATABASE_URL`:
+
+```env
+SUPABASE_URL=https://SEU-PROJETO.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+SUPABASE_STORAGE_BUCKET=avatars
+MAX_AVATAR_SIZE_MB=1
+```
+
+A service role fica **só no backend**.
+
+Bucket no Dashboard do Supabase (Storage → New bucket):
+
+1. Nome: `avatars` (ou o valor de `SUPABASE_STORAGE_BUCKET`)
+2. Public bucket: **sim** (a foto precisa abrir no `<img>` da página pública)
+3. Upload autenticado pelo backend (service role). Não libere write público.
+4. Opcional: limite de 1 MB e MIME `image/jpeg`, `image/png`, `image/webp`
+
+Arquivo gravado: `{userId}.webp` no bucket. Novo upload **substitui** o anterior (mesmo path + `upsert`).
+
+`POST /me/profile/avatar` (multipart campo `file`) é o fluxo novo. `avatarUrl` no `PUT /me/profile` permanece por compatibilidade com URLs já salvas.
+
 ### DATABASE_URL
 
 No Neon Console, copie a connection string **pooled** com `sslmode=require`:

@@ -42,11 +42,15 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   }
 
   if (err instanceof multer.MulterError) {
-    const message =
-      err.code === "LIMIT_FILE_SIZE"
-        ? `Arquivo maior que o limite de ${env.MAX_AVATAR_SIZE_MB}MB`
-        : err.message;
-    return fail(res, 400, "UPLOAD_ERROR", message);
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return fail(
+        res,
+        413,
+        "FILE_TOO_LARGE",
+        `Arquivo maior que o limite de ${env.MAX_AVATAR_SIZE_MB}MB`,
+      );
+    }
+    return fail(res, 400, "UPLOAD_ERROR", err.message);
   }
 
   // Violacao de unique constraint do Postgres

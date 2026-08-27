@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { badRequest } from "../../lib/errors";
 import { ok } from "../../lib/http";
-import { avatarUpload, buildAvatarUrl } from "../../lib/upload";
+import { avatarUpload } from "../../lib/upload";
 import { authenticate } from "../../middlewares/authenticate";
 import { requireActiveSubscription } from "../../middlewares/require-subscription";
 import { loadProfile } from "../../middlewares/load-profile";
@@ -55,12 +55,16 @@ profileRoutes.get("/preview", async (req, res) => {
 });
 
 profileRoutes.post("/avatar", avatarUpload, async (req, res) => {
-  if (!req.file) throw badRequest("Envie a imagem no campo 'file'", "FILE_REQUIRED");
+  if (!req.file?.buffer) throw badRequest("Envie a imagem no campo 'file'", "FILE_REQUIRED");
 
-  const avatarUrl = buildAvatarUrl(req.file.filename);
-  const profile = await profileService.updateAvatar(req.profile!.id, avatarUrl);
+  const profile = await profileService.updateAvatar(req.user!.id, {
+    buffer: req.file.buffer,
+    mimetype: req.file.mimetype,
+    originalname: req.file.originalname,
+    size: req.file.size,
+  });
 
-  return ok(res, { avatarUrl, profile: presentProfile(profile) }, 201);
+  return ok(res, { avatarUrl: profile.avatarUrl, profile: presentProfile(profile) }, 201);
 });
 
 profileRoutes.use("/blocks", blocksRoutes);

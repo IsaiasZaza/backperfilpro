@@ -46,7 +46,12 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional(),
 
   UPLOAD_DIR: z.string().default("uploads"),
-  MAX_AVATAR_SIZE_MB: z.coerce.number().default(2),
+  MAX_AVATAR_SIZE_MB: z.coerce.number().default(1),
+
+  /** Service role so no backend. Nunca exponha no frontend. */
+  SUPABASE_URL: z.string().optional().default(""),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(""),
+  SUPABASE_STORAGE_BUCKET: z.string().default("avatars"),
 
   STRIPE_SECRET_KEY: z.string().optional().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().optional().default(""),

@@ -12,6 +12,8 @@ Formato das respostas: sempre `{ "data": ..., "error": null }` ou `{ "data": nul
 NEXT_PUBLIC_API_URL=http://localhost:3333
 ```
 
+Não coloque chaves do Supabase no Next.js. O upload de avatar passa pela API; `SUPABASE_SERVICE_ROLE_KEY` fica só no backend.
+
 No backend, o CORS já libera `http://localhost:3000`:
 
 ```env
@@ -157,7 +159,22 @@ Fluxo sugerido no FE:
 | POST | `/me/profile/publish` | Publicar página |
 | POST | `/me/profile/unpublish` | Voltar para rascunho |
 | GET | `/me/profile/preview` | Preview (mesmo shape da pública, inclui ocultos) |
-| POST | `/me/profile/avatar` | Upload multipart campo `file` |
+| POST | `/me/profile/avatar` | Upload multipart campo `file` → Supabase Storage |
+
+Upload (não defina `Content-Type` — o browser coloca o boundary):
+
+```ts
+const form = new FormData();
+form.append("file", arquivo); // File do input
+
+const data = await api<{ avatarUrl: string; profile: Profile }>(
+  "/me/profile/avatar",
+  { method: "POST", body: form, headers: {} }, // evita application/json
+);
+// use data.avatarUrl no <img>
+```
+
+Se o helper `api()` sempre manda `Content-Type: application/json`, faça um `fetch` separado para o avatar.
 
 Exemplo PUT:
 ```json
@@ -181,7 +198,9 @@ Exemplo PUT:
 - Username livre enquanto `DRAFT`
 - Depois de `PUBLISHED`, username pode mudar **no máximo 1x**
 - Publicar exige: username definitivo (não `user-*`), `displayName` e ≥ 1 bloco visível
-- Links do Google Drive (`/file/d/.../view`) são aceitos. O GET devolve `avatarUrl` como `{APP_URL}/media/drive/{id}` — use essa URL no `<img>`. O arquivo precisa estar **"qualquer pessoa com o link"**. `APP_URL` no `.env` da API deve ser a URL pública do backend.
+- Foto de perfil: envie o arquivo em `POST /me/profile/avatar` (multipart, campo `file`). JPEG, PNG ou WEBP, até 1 MB. O back converte para WEBP 256x256, grava no Supabase Storage e devolve `avatarUrl` — use esse valor no `<img>`.
+- `PUT /me/profile` ainda aceita `avatarUrl` (URL `https`) para não quebrar perfis/fronts antigos. URLs do Google Drive (`/file/d/.../view`) continuam virando `{APP_URL}/media/drive/{id}`.
+- Não coloque `SUPABASE_SERVICE_ROLE_KEY` no frontend. O upload passa só pela API.
 
 ---
 

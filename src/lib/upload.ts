@@ -1,7 +1,7 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
+import sharp from "sharp";
 import { env } from "../config/env";
 import { badRequest } from "./errors";
 
@@ -9,23 +9,30 @@ export const uploadDir = path.resolve(process.cwd(), env.UPLOAD_DIR);
 
 fs.mkdirSync(uploadDir, { recursive: true });
 
-const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"];
+const ALLOWED_MIME = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
+const ALLOWED_EXT = new Set([".jpg", ".jpeg", ".png", ".webp"]);
+
+export const AVATAR_MAX_BYTES = env.MAX_AVATAR_SIZE_MB * 1024 * 1024;
+
+function hasAllowedMagicBytes(buffer: Buffer) {
+  if (buffer.length < 12) return false;
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return true;
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+    return true;
+  }
+  return buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP";
+}
 
 /**
- * Em dev os avatares ficam em disco e sao servidos por /uploads.
- * Em producao, troque este storage por S3/Cloudinary (a rota nao muda).
+ * Recebe o arquivo em memoria. O nome original e ignorado:
+ * o objeto no Storage e sempre `{userId}.webp`.
  */
 export const avatarUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadDir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
-      cb(null, `${crypto.randomUUID()}${ext}`);
-    },
-  }),
-  limits: { fileSize: env.MAX_AVATAR_SIZE_MB * 1024 * 1024, files: 1 },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: AVATAR_MAX_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
-    if (!ALLOWED_MIME.includes(file.mimetype)) {
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    if (!ALLOWED_MIME.has(file.mimetype) || (ext && !ALLOWED_EXT.has(ext))) {
       cb(badRequest("Envie uma imagem JPEG, PNG ou WEBP", "INVALID_FILE_TYPE"));
       return;
     }
@@ -33,4 +40,41 @@ export const avatarUpload = multer({
   },
 }).single("file");
 
-export const buildAvatarUrl = (filename: string) => `${env.APP_URL}/uploads/${filename}`;
+/** Converte para WEBP 256x256. Nao confia no MIME informado pelo cliente. */
+export async function processAvatarImage(buffer: Buffer) {
+  if (!hasAllowedMagicBytes(buffer)) {
+    throw badRequest("Envie uma imagem JPEG, PNG ou WEBP", "INVALID_FILE_TYPE");
+  }
+
+  try {
+    return await sharp(buffer, { failOn: "error" })
+      .rotate()
+      .resize(256, 256, { fit: "cover", position: "centre" })
+      .webp({ quality: 82 })
+      .toBuffer();
+  } catch {
+    throw badRequest("Arquivo de imagem invalido", "INVALID_FILE_TYPE");
+  }
+}
+
+/** Remove avatar antigo gravado em disco pela implementacao anterior (`/uploads`). */
+export function removeLocalAvatarIfOwned(avatarUrl: string | null | undefined) {
+  if (!avatarUrl) return;
+
+  let filename: string;
+  try {
+    const parsed = new URL(avatarUrl);
+    if (!parsed.pathname.includes("/uploads/")) return;
+    filename = path.basename(parsed.pathname);
+  } catch {
+    return;
+  }
+
+  if (!filename || filename.includes("..")) return;
+
+  const fullPath = path.resolve(uploadDir, filename);
+  const relative = path.relative(uploadDir, fullPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return;
+
+  fs.unlink(fullPath, () => undefined);
+}

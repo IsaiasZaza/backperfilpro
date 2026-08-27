@@ -35,5 +35,10 @@ export const notFound = (message = "Recurso nao encontrado", code = "NOT_FOUND")
 
 export const conflict = (message: string, code = "CONFLICT") => new AppError(409, code, message);
 
+export const payloadTooLarge = (message: string, code = "FILE_TOO_LARGE") =>
+  new AppError(413, code, message);
+
+export const badGateway = (message: string, code = "STORAGE_ERROR") => new AppError(502, code, message);
+
 export const tooManyRequests = (message = "Muitas tentativas. Tente novamente em instantes.") =>
   new AppError(429, "TOO_MANY_REQUESTS", message);
