@@ -90,23 +90,25 @@ describe("FREE -> PAID -> CANCEL -> FREE", () => {
     const theme = await request(app)
       .put("/me/profile")
       .set(auth())
-      .send({ theme: { atmosphere: "cosmic", primaryColor: "#ff00aa" } });
-    expect(theme.status).toBe(402);
-    expect(theme.body.error.code).toBe("PLAN_FEATURE_LOCKED");
+      .send({
+        theme: { atmosphere: "cosmic", primaryColor: "", buttonStyle: "" },
+      });
+    expect(theme.status).toBe(200);
+    expect(theme.body.data.theme.atmosphere).toBe("cosmic");
 
     const mixed = await request(app)
       .put("/me/profile")
       .set(auth())
       .send({
         headline: "Livre",
-        theme: { atmosphere: "cosmic" },
+        theme: { atmosphere: "" },
         plan: "PREMIUM",
         planId: "PREMIUM",
         entitlements: { customTheme: true },
       });
     expect(mixed.status).toBe(200);
     expect(mixed.body.data.headline).toBe("Livre");
-    expect(mixed.body.data.theme).toEqual({});
+    expect(mixed.body.data.theme.atmosphere).toBe("none");
     expect(mixed.body.data.plan).toBeUndefined();
 
     const location = await request(app)
@@ -216,7 +218,7 @@ describe("FREE -> PAID -> CANCEL -> FREE", () => {
     expect(me.body.data.subscription.entitlements.customTheme).toBe(false);
 
     const profile = await request(app).get("/me/profile").set(auth());
-    expect(profile.body.data.theme).toEqual({});
+    expect(profile.body.data.theme.atmosphere).toBe("cosmic");
 
     const storedTheme = await query<{ theme: Record<string, unknown> }>(
       `SELECT theme FROM profiles WHERE "userId" = $1`,
@@ -224,11 +226,17 @@ describe("FREE -> PAID -> CANCEL -> FREE", () => {
     );
     expect(storedTheme[0]?.theme).toMatchObject({ atmosphere: "cosmic" });
 
-    const theme = await request(app)
+    const clearAtmosphere = await request(app)
       .put("/me/profile")
       .set(auth())
-      .send({ theme: { atmosphere: "inferno" } });
-    expect(theme.status).toBe(402);
+      .send({ theme: { atmosphere: "" } });
+    expect(clearAtmosphere.status).toBe(200);
+    expect(clearAtmosphere.body.data.theme.atmosphere).toBe("none");
+
+    await request(app)
+      .put("/me/profile")
+      .set(auth())
+      .send({ theme: { atmosphere: "cosmic" } });
 
     const location = await request(app)
       .patch(`/me/profile/blocks/${locationBlockId}`)

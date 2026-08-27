@@ -7,13 +7,12 @@ import { isReservedUsername } from "../../lib/username";
 import { grantsAccess, resolveSubscription } from "../billing/billing.service";
 import {
   applyCountLimit,
-  assertCanUpdateTheme,
   entitlementsOf,
   filterBlocksForPlan,
   sanitizeThemeForPlan,
   showBrandingFor,
 } from "../billing/entitlements";
-import type { updateProfileSchema } from "./profile.schemas";
+import { mergeTheme, updateProfileSchema } from "./profile.schemas";
 
 export async function getProfileByUserId(userId: string) {
   const profile = await queryOne<Profile>(`SELECT * FROM profiles WHERE "userId" = $1`, [userId]);
@@ -94,20 +93,10 @@ async function resolveUsernameChange(profile: Profile, username: string) {
 
 export async function updateProfile(userId: string, input: z.infer<typeof updateProfileSchema>) {
   const profile = await getProfileByUserId(userId);
-  const subscription = await resolveSubscription(userId);
-  const plan = subscription?.plan ?? "FREE";
   const { username, theme, ...rest } = input;
   const usernameData = username ? await resolveUsernameChange(profile, username) : {};
 
-  const hasOtherFields = Object.values(rest).some((value) => value !== undefined) || Boolean(username);
-  if (theme !== undefined && !entitlementsOf(plan).customTheme) {
-    if (!hasOtherFields) assertCanUpdateTheme(plan);
-  }
-
-  const nextTheme =
-    theme !== undefined && entitlementsOf(plan).customTheme
-      ? { ...profile.theme, ...theme }
-      : profile.theme;
+  const nextTheme = theme !== undefined ? mergeTheme(profile.theme, theme) : profile.theme;
 
   const next = {
     displayName: rest.displayName !== undefined ? rest.displayName : profile.displayName,

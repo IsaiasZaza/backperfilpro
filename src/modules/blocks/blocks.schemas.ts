@@ -2,6 +2,18 @@ import { z } from "zod";
 import { urlSchema } from "../../lib/sanitize";
 import type { BlockType } from "../../db/types";
 
+const optionalUrlSchema = z.preprocess(
+  (value) => (value == null || value === "" ? undefined : value),
+  urlSchema.optional(),
+);
+
+function optionalEnum<T extends [string, ...string[]]>(values: T) {
+  return z.preprocess(
+    (value) => (value == null || value === "" ? undefined : value),
+    z.enum(values).optional(),
+  );
+}
+
 /**
  * Campos de aparência por bloco (editor).
  * `.passthrough()` nos schemas abaixo preserva esses campos no JSON.
@@ -10,15 +22,15 @@ const blockLookFields = {
   textColor: z.string().trim().max(32).optional(),
   backgroundColor: z.string().trim().max(32).optional(),
   borderColor: z.string().trim().max(32).optional(),
-  align: z.enum(["left", "right", "center"]).optional(),
-  width: z.enum(["fit", "full"]).optional(),
+  align: optionalEnum(["left", "right", "center"]),
+  width: optionalEnum(["fit", "full"]),
   pulse: z.boolean().optional(),
-  fontSize: z.enum(["sm", "md", "lg", "xl"]).optional(),
-  avatarSize: z.enum(["xs", "sm", "md", "lg", "xl", "2xl"]).optional(),
-  avatarShape: z.enum(["circle", "rounded", "square"]).optional(),
-  radius: z.enum(["none", "sm", "md", "lg", "pill"]).optional(),
-  padding: z.enum(["sm", "md", "lg"]).optional(),
-  shadow: z.enum(["none", "soft"]).optional(),
+  fontSize: optionalEnum(["sm", "md", "lg", "xl"]),
+  avatarSize: optionalEnum(["xs", "sm", "md", "lg", "xl", "2xl"]),
+  avatarShape: optionalEnum(["circle", "rounded", "square"]),
+  radius: optionalEnum(["none", "sm", "md", "lg", "pill"]),
+  padding: optionalEnum(["sm", "md", "lg"]),
+  shadow: optionalEnum(["none", "soft"]),
 };
 
 /**
@@ -31,7 +43,7 @@ export const blockContentSchemas = {
       name: z.string().trim().max(80).optional(),
       headline: z.string().trim().max(120).optional(),
       bio: z.string().trim().max(500).optional(),
-      avatarUrl: urlSchema.optional(),
+      avatarUrl: optionalUrlSchema,
       location: z.string().trim().max(120).optional(),
       ...blockLookFields,
     })
@@ -90,7 +102,7 @@ export const blockContentSchemas = {
         )
         .min(1, "Adicione pelo menos uma rede social")
         .max(10),
-      layout: z.enum(["icons", "buttons"]).optional(),
+      layout: optionalEnum(["icons", "buttons"]),
       ...blockLookFields,
     })
     .passthrough(),
@@ -113,8 +125,8 @@ export const blockContentSchemas = {
   LOCATION: z
     .object({
       address: z.string().trim().min(3).max(200),
-      mapsUrl: urlSchema.optional(),
-      url: urlSchema.optional(),
+      mapsUrl: optionalUrlSchema,
+      url: optionalUrlSchema,
       label: z.string().trim().max(60).optional(),
       ...blockLookFields,
     })
@@ -155,7 +167,7 @@ export const reorderBlocksSchema = z
       sortOrder: z.number().int().min(0),
     }),
   )
-  .min(1, "Envie a lista de blocos com a nova ordem");
+  .default([]);
 
 /** Valida o `content` de acordo com o tipo do bloco. */
 export function parseBlockContent(type: BlockType, content: unknown) {

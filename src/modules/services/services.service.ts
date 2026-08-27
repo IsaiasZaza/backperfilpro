@@ -108,6 +108,5 @@ export async function updateService(
 }
 
 export async function deleteService(profileId: string, id: string) {
-  const service = await findOwned(profileId, id);
-  await query(`DELETE FROM service_items WHERE id = $1`, [service.id]);
+  await query(`DELETE FROM service_items WHERE id = $1 AND "profileId" = $2`, [id, profileId]);
 }

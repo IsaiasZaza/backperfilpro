@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import { query, queryOne, withTransaction } from "../../db/client";
 import type { Block } from "../../db/types";
-import { badRequest, notFound } from "../../lib/errors";
+import { notFound } from "../../lib/errors";
 import { resolveSubscription } from "../billing/billing.service";
 import { assertCanCreateBlock, assertCanMutateBlock, filterBlocksForPlan } from "../billing/entitlements";
 import type { createBlockSchema, reorderBlocksSchema, updateBlockSchema } from "./blocks.schemas";
@@ -34,15 +34,6 @@ export async function listBlocks(profileId: string) {
 export async function listBlocksForPlan(userId: string, profileId: string) {
   const plan = await planOf(userId);
   return filterBlocksForPlan(plan, await listBlocks(profileId));
-}
-
-async function findOwnedBlock(profileId: string, blockId: string) {
-  const block = await queryOne<Block>(
-    `SELECT * FROM blocks WHERE id = $1 AND "profileId" = $2`,
-    [blockId, profileId],
-  );
-  if (!block) throw notFound("Bloco nao encontrado", "BLOCK_NOT_FOUND");
-  return mapBlock(block);
 }
 
 async function nextSortOrder(profileId: string) {
@@ -119,8 +110,7 @@ export async function updateBlock(
 }
 
 export async function deleteBlock(profileId: string, blockId: string) {
-  const block = await findOwnedBlock(profileId, blockId);
-  await query(`DELETE FROM blocks WHERE id = $1`, [block.id]);
+  await query(`DELETE FROM blocks WHERE id = $1 AND "profileId" = $2`, [blockId, profileId]);
 }
 
 export async function reorderBlocks(
@@ -128,18 +118,19 @@ export async function reorderBlocks(
   profileId: string,
   items: z.infer<typeof reorderBlocksSchema>,
 ) {
-  const ids = items.map((item) => item.id);
-  const owned = await queryOne<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM blocks WHERE "profileId" = $1 AND id = ANY($2::text[])`,
-    [profileId, ids],
-  );
-
-  if (Number(owned?.count ?? 0) !== ids.length) {
-    throw badRequest("Um ou mais blocos nao pertencem ao seu perfil", "BLOCK_NOT_FOUND");
+  if (items.length === 0) {
+    return listBlocksForPlan(userId, profileId);
   }
+
+  const owned = await query<{ id: string }>(
+    `SELECT id FROM blocks WHERE "profileId" = $1 AND id = ANY($2::text[])`,
+    [profileId, items.map((item) => item.id)],
+  );
+  const ownedIds = new Set(owned.map((row) => row.id));
 
   await withTransaction(async (client) => {
     for (const item of items) {
+      if (!ownedIds.has(item.id)) continue;
       await client.query(
         `UPDATE blocks SET "sortOrder" = $1, "updatedAt" = NOW() WHERE id = $2`,
         [item.sortOrder, item.id],

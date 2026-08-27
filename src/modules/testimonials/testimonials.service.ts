@@ -108,6 +108,5 @@ export async function updateTestimonial(
 }
 
 export async function deleteTestimonial(profileId: string, id: string) {
-  const testimonial = await findOwned(profileId, id);
-  await query(`DELETE FROM testimonials WHERE id = $1`, [testimonial.id]);
+  await query(`DELETE FROM testimonials WHERE id = $1 AND "profileId" = $2`, [id, profileId]);
 }

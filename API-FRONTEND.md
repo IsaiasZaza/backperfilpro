@@ -181,6 +181,7 @@ Exemplo PUT:
 - Username livre enquanto `DRAFT`
 - Depois de `PUBLISHED`, username pode mudar **no máximo 1x**
 - Publicar exige: username definitivo (não `user-*`), `displayName` e ≥ 1 bloco visível
+- Links do Google Drive (`/file/d/.../view?usp=sharing`) são aceitos em `avatarUrl` e nos `url` dos blocos. O back converte para `https://drive.google.com/uc?export=view&id=...` (o arquivo precisa estar com acesso "qualquer pessoa com o link")
 
 ---
 
