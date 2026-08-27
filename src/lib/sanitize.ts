@@ -79,7 +79,14 @@ export function rewriteDriveImageFields<T>(value: T): T {
   if (value && typeof value === "object") {
     const next: Record<string, unknown> = {};
     for (const [key, field] of Object.entries(value as Record<string, unknown>)) {
-      if (key === "avatarUrl" || key === "imageUrl" || key === "image") {
+      if (
+        key === "avatarUrl" ||
+        key === "imageUrl" ||
+        key === "image" ||
+        key === "bannerUrl" ||
+        key === "thumbnailUrl" ||
+        key === "backgroundImage"
+      ) {
         next[key] = rewriteDriveImageFields(field);
       } else {
         next[key] = field;
@@ -88,6 +95,29 @@ export function rewriteDriveImageFields<T>(value: T): T {
     return next as T;
   }
   return value;
+}
+
+/**
+ * URL publica http(s) com hostname com ponto (capa, miniatura, fundo).
+ * Invalida → undefined (ignore). Vazio/null → null (limpa no merge do tema).
+ * Nao baixa arquivo e nao sobe ao Storage.
+ */
+export function parsePublicHttpUrl(value: unknown): string | null | undefined {
+  if (value == null) return null;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return undefined;
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+  if (!url.hostname.includes(".")) return undefined;
+  return url.toString();
 }
 
 /** Schema zod reutilizavel para qualquer campo de link vindo do frontend. */

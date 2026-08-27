@@ -49,9 +49,9 @@ Bucket no Dashboard do Supabase (Storage → New bucket):
 3. Upload autenticado pelo backend (service role). Não libere write público.
 4. Opcional: limite de 1 MB e MIME `image/jpeg`, `image/png`, `image/webp`
 
-Arquivo gravado: `{userId}.webp` no bucket. Novo upload **substitui** o anterior (mesmo path + `upsert`).
+Arquivo gravado: `{userId}.webp` (foto) e `{userId}-banner.webp` (banner). Novo upload **substitui** o arquivo no Storage (mesmo path + `upsert`), mas **não grava no banco**. Persista no clique de atualizar: `PUT /me/profile` (`avatarUrl` / `theme.backgroundImage`) ou `PATCH` do HERO (`content.bannerUrl`).
 
-`POST /me/profile/avatar` (multipart campo `file`) é o fluxo novo. `avatarUrl` no `PUT /me/profile` permanece por compatibilidade com URLs já salvas.
+`POST /me/profile/avatar` e `POST /me/profile/banner` (multipart campo `file`). Banner exige Pro/Premium (`customTheme`).
 
 ### DATABASE_URL
 
@@ -148,7 +148,7 @@ Auth: `/auth/register|login|logout|refresh|forgot-password|reset-password|me`
 
 Billing: `/billing/plans`, `/checkout`, `/confirm-session`, `/subscription`, `/change-plan`, `/cancel`, `/resume`, `/portal`, `/webhook`
 
-Perfil: `/me/profile`, `/publish`, `/unpublish`, `/preview`, `/avatar`
+Perfil: `/me/profile`, `/publish`, `/unpublish`, `/preview`, `/avatar`, `/banner`
 
 Blocos: `/me/profile/blocks` (+ `/reorder`, `/:id`)
 

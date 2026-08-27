@@ -85,6 +85,8 @@ const profileSchema = {
           type: "string",
           enum: ["none", "claw", "comic", "arc", "symbiote", "storm", "inferno", "cosmic"],
         },
+        backgroundImage: { type: "string", example: "https://cdn.exemplo.com/banner.webp" },
+        overlay: { type: "integer", minimum: 0, maximum: 80, example: 40 },
       },
     },
 
@@ -511,7 +513,7 @@ export const openapiDocument = {
         tags: ["Perfil"],
         summary: "Atualiza dados do perfil",
         description:
-          "Regra do username: livre enquanto DRAFT; depois de publicado permite no maximo 1 troca. `avatarUrl` ainda e aceito por compatibilidade; o fluxo preferido e POST /me/profile/avatar.",
+          "Regra do username: livre enquanto DRAFT; depois de publicado permite no maximo 1 troca. Foto e banner: faca o upload e envie a URL aqui no clique de atualizar. Tema customizado exige customTheme (Pro/Premium).",
         requestBody: body({
           type: "object",
           properties: {
@@ -528,12 +530,15 @@ export const openapiDocument = {
                 buttonStyle: "pill",
                 font: "sans",
                 atmosphere: "claw",
+                backgroundImage: "https://cdn.exemplo.com/banner.webp",
+                overlay: 40,
               },
             },
           },
         }),
         responses: {
           200: json("Perfil atualizado", success(profileSchema)),
+          402: errors[402],
           403: errors[403],
           409: errors[409],
           422: errors[422],
@@ -573,8 +578,9 @@ export const openapiDocument = {
         description: [
           "Envia a imagem para o Supabase Storage (bucket de avatars).",
           "Formatos: JPEG, PNG, WEBP. Limite: 1 MB.",
-          "A API converte para WEBP 256x256 e grava em `{userId}.webp`, substituindo a foto anterior.",
-          "Resposta: `{ avatarUrl, profile }`. Use `avatarUrl` no `<img>`.",
+          "A API converte para WEBP 256x256 e grava em `{userId}.webp`.",
+          "Nao atualiza o perfil. Use a `avatarUrl` devolvida no PUT /me/profile ao clicar em atualizar.",
+          "Resposta: `{ avatarUrl, profile }`. O `profile` ainda tem a foto antiga.",
         ].join(" "),
         requestBody: {
           required: true,
@@ -589,9 +595,42 @@ export const openapiDocument = {
           },
         },
         responses: {
-          201: json("Avatar salvo", success({ type: "object" })),
+          201: json("Upload concluido (ainda nao gravado no perfil)", success({ type: "object" })),
           400: errors[400],
           401: errors[401],
+          413: errors[413],
+          502: errors[502],
+        },
+      },
+    },
+
+    "/me/profile/banner": {
+      post: {
+        tags: ["Perfil"],
+        summary: "Upload do banner (multipart, campo `file`)",
+        description: [
+          "Mesma logica do avatar: JPEG/PNG/WEBP, ate 1 MB, converte para WEBP 1600x900.",
+          "Grava em `{userId}-banner.webp`. Nao persiste no banco.",
+          "Use a `bannerUrl` no PUT /me/profile (`theme.backgroundImage`) ou no PATCH do HERO (`content.bannerUrl`) ao clicar em atualizar.",
+          "Exige customTheme (Pro/Premium). Free recebe 402 PLAN_FEATURE_LOCKED.",
+        ].join(" "),
+        requestBody: {
+          required: true,
+          content: {
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                required: ["file"],
+                properties: { file: { type: "string", format: "binary" } },
+              },
+            },
+          },
+        },
+        responses: {
+          201: json("Upload concluido (ainda nao gravado no perfil)", success({ type: "object" })),
+          400: errors[400],
+          401: errors[401],
+          402: errors[402],
           413: errors[413],
           502: errors[502],
         },
@@ -609,14 +648,15 @@ export const openapiDocument = {
         summary: "Cria um bloco",
         description: [
           "Formato do `content` por tipo:",
-          "- `HERO`: { name, headline, bio, avatarUrl, location }",
-          "- `CTA_BUTTON`: { label, url, style: primary|secondary|outline }",
-          "- `LINK_BUTTON`: { label, url, icon? }",
+          "- `HERO`: { name, headline, bio, avatarUrl, location, layout: stack|split|banner, bannerUrl }",
+          "- `CTA_BUTTON`: { label, url?, style: primary|secondary|outline }",
+          "- `LINK_BUTTON`: { label, url?, icon?, subtitle?, thumbnailUrl?, layout: row|cover|minimal, badge? }",
           "- `WHATSAPP`: { phone: '5561999999999', message?, label? }",
-          "- `SOCIAL`: { items: [{ network: instagram|facebook|tiktok|youtube|linkedin|x|site, url }] }",
-          "- `SERVICES`: { heading } (os itens vem de /me/profile/services)",
-          "- `TESTIMONIALS`: { heading } (os itens vem de /me/profile/testimonials)",
-          "- `LOCATION`: { address, mapsUrl?, label? }",
+          "- `SOCIAL`: { items: [{ network: instagram|facebook|tiktok|youtube|linkedin|x|site, url }], layout?, style: brand|mono|ghost }",
+          "- `SERVICES`: { heading, layout: list|cards } (os itens vem de /me/profile/services)",
+          "- `TESTIMONIALS`: { heading, layout: stack|quote } (os itens vem de /me/profile/testimonials)",
+          "- `LOCATION`: { address, mapsUrl?, url?, label?, layout: card|map }",
+          "Look comum (Pro/Premium via customTheme): surface, hover, shadow, cores, raios, etc.",
         ].join("\n"),
         requestBody: body({
           type: "object",

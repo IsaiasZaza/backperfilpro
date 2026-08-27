@@ -164,7 +164,7 @@ describe("fluxo do usuario", () => {
     const response = await request(app)
       .post("/me/profile/blocks")
       .set("Authorization", `Bearer ${accessToken}`)
-      .send({ type: "CTA_BUTTON", content: { label: "Agendar", url: "javascript:alert(1)" } });
+      .send({ type: "LINK_BUTTON", content: { label: "Agendar", url: "javascript:alert(1)" } });
 
     expect(response.status).toBe(422);
     expect(response.body.error.code).toBe("VALIDATION_ERROR");

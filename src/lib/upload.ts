@@ -40,8 +40,7 @@ export const avatarUpload = multer({
   },
 }).single("file");
 
-/** Converte para WEBP 256x256. Nao confia no MIME informado pelo cliente. */
-export async function processAvatarImage(buffer: Buffer) {
+async function processImage(buffer: Buffer, width: number, height: number) {
   if (!hasAllowedMagicBytes(buffer)) {
     throw badRequest("Envie uma imagem JPEG, PNG ou WEBP", "INVALID_FILE_TYPE");
   }
@@ -49,12 +48,22 @@ export async function processAvatarImage(buffer: Buffer) {
   try {
     return await sharp(buffer, { failOn: "error" })
       .rotate()
-      .resize(256, 256, { fit: "cover", position: "centre" })
+      .resize(width, height, { fit: "cover", position: "centre" })
       .webp({ quality: 82 })
       .toBuffer();
   } catch {
     throw badRequest("Arquivo de imagem invalido", "INVALID_FILE_TYPE");
   }
+}
+
+/** Converte para WEBP 256x256. Nao confia no MIME informado pelo cliente. */
+export async function processAvatarImage(buffer: Buffer) {
+  return processImage(buffer, 256, 256);
+}
+
+/** Capa/banner em 16:9. Mesma validacao e formato do avatar. */
+export async function processBannerImage(buffer: Buffer) {
+  return processImage(buffer, 1600, 900);
 }
 
 /** Remove avatar antigo gravado em disco pela implementacao anterior (`/uploads`). */

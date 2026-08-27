@@ -57,14 +57,27 @@ profileRoutes.get("/preview", async (req, res) => {
 profileRoutes.post("/avatar", avatarUpload, async (req, res) => {
   if (!req.file?.buffer) throw badRequest("Envie a imagem no campo 'file'", "FILE_REQUIRED");
 
-  const profile = await profileService.updateAvatar(req.user!.id, {
+  const avatarUrl = await profileService.uploadAvatar(req.user!.id, {
     buffer: req.file.buffer,
     mimetype: req.file.mimetype,
     originalname: req.file.originalname,
     size: req.file.size,
   });
 
-  return ok(res, { avatarUrl: profile.avatarUrl, profile: presentProfile(profile) }, 201);
+  return ok(res, { avatarUrl, profile: presentProfile(req.profile!) }, 201);
+});
+
+profileRoutes.post("/banner", avatarUpload, async (req, res) => {
+  if (!req.file?.buffer) throw badRequest("Envie a imagem no campo 'file'", "FILE_REQUIRED");
+
+  const bannerUrl = await profileService.uploadBanner(req.user!.id, {
+    buffer: req.file.buffer,
+    mimetype: req.file.mimetype,
+    originalname: req.file.originalname,
+    size: req.file.size,
+  });
+
+  return ok(res, { bannerUrl, profile: presentProfile(req.profile!) }, 201);
 });
 
 profileRoutes.use("/blocks", blocksRoutes);

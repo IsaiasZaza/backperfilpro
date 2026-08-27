@@ -55,6 +55,9 @@ describe("entitlements do plano Free", () => {
     expect(sanitizeThemeForPlan("FREE", theme)).toEqual({});
     expect(sanitizeThemeForPlan("PRO", theme)).toEqual(theme);
     expect(() => assertCanUpdateTheme("FREE")).toThrow(AppError);
+    expect(() => assertCanUpdateTheme("FREE", { atmosphere: "cosmic" })).toThrow(AppError);
+    expect(() => assertCanUpdateTheme("FREE", {})).not.toThrow();
+    expect(() => assertCanUpdateTheme("FREE", { atmosphere: "none" })).not.toThrow();
     expect(() => assertCanUpdateTheme("PREMIUM")).not.toThrow();
   });
 

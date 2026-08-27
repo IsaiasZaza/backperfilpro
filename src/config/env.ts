@@ -4,9 +4,11 @@ import { z } from "zod";
 /**
  * Em producao as env do host (Railway/Render) vencem.
  * Em dev o tsx watch herda process.env antigo — reler o .env evita Price IDs inativos.
+ * Em test o Vitest define NODE_ENV=test; nao deixar o .env voltar para development
+ * (senao o checkout bate na Stripe live em vez de ativar o plano local).
  */
 dotenv.config({
-  override: process.env.NODE_ENV !== "production",
+  override: process.env.NODE_ENV !== "production" && process.env.NODE_ENV !== "test",
 });
 
 /**

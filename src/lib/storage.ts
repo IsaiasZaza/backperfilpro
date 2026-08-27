@@ -10,12 +10,22 @@ export type StoredObject = {
 
 const USER_ID_PATH = /^[a-zA-Z0-9_-]+$/;
 
-/** Caminho deterministico no bucket: `{userId}.webp` (bucket padrao `avatars`). */
-export function avatarObjectPath(userId: string) {
+function assertUserIdPath(userId: string) {
   if (!USER_ID_PATH.test(userId)) {
     throw badRequest("Identificador de usuario invalido", "INVALID_USER_ID");
   }
+}
+
+/** Caminho deterministico no bucket: `{userId}.webp` (bucket padrao `avatars`). */
+export function avatarObjectPath(userId: string) {
+  assertUserIdPath(userId);
   return `${userId}.webp`;
+}
+
+/** Capa/banner: `{userId}-banner.webp`. Mesmo bucket do avatar. */
+export function bannerObjectPath(userId: string) {
+  assertUserIdPath(userId);
+  return `${userId}-banner.webp`;
 }
 
 export function getPublicUrl(objectPath: string) {
@@ -66,7 +76,7 @@ export async function uploadPublicObject(params: {
       );
     }
 
-    throw badGateway("Nao foi possivel salvar a foto de perfil. Tente novamente.");
+    throw badGateway("Nao foi possivel salvar a imagem. Tente novamente.");
   }
 
   return {

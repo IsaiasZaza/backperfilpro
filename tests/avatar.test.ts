@@ -2,7 +2,7 @@ import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "../src/lib/errors";
 import { AVATAR_MAX_BYTES } from "../src/lib/upload";
-import { avatarObjectPath } from "../src/lib/storage";
+import { avatarObjectPath, bannerObjectPath } from "../src/lib/storage";
 import { query } from "../src/db/client";
 
 vi.mock("../src/lib/storage", async (importOriginal) => {
@@ -45,8 +45,10 @@ async function register(email: string) {
 describe("avatarObjectPath", () => {
   it("usa o userId e rejeita path traversal", () => {
     expect(avatarObjectPath("user-123")).toBe("user-123.webp");
+    expect(bannerObjectPath("user-123")).toBe("user-123-banner.webp");
     expect(() => avatarObjectPath("../etc/passwd")).toThrow(AppError);
     expect(() => avatarObjectPath("foo/bar")).toThrow(AppError);
+    expect(() => bannerObjectPath("foo/bar")).toThrow(AppError);
   });
 });
 
@@ -81,7 +83,12 @@ describe("POST /me/profile/avatar", () => {
     }));
   });
 
-  it("faz upload valido, converte e grava a URL publica", async () => {
+  it("faz upload valido, converte e devolve a URL sem gravar no perfil", async () => {
+    const before = await request(app)
+      .get("/me/profile")
+      .set("Authorization", `Bearer ${ownerToken}`);
+    const avatarBefore = before.body.data.avatarUrl;
+
     const response = await request(app)
       .post("/me/profile/avatar")
       .set("Authorization", `Bearer ${ownerToken}`)
@@ -92,7 +99,7 @@ describe("POST /me/profile/avatar", () => {
     expect(response.body.data.avatarUrl).toMatch(
       new RegExp(`^https://cdn\\.test/storage/v1/object/public/avatars/${ownerId}\\.webp\\?v=\\d+$`),
     );
-    expect(response.body.data.profile.avatarUrl).toBe(response.body.data.avatarUrl);
+    expect(response.body.data.profile.avatarUrl).toBe(avatarBefore);
     expect(uploadPublicObjectMock).toHaveBeenCalledTimes(1);
     expect(uploadPublicObjectMock.mock.calls[0][0]).toMatchObject({
       path: `${ownerId}.webp`,
@@ -100,6 +107,18 @@ describe("POST /me/profile/avatar", () => {
       upsert: true,
     });
     expect(Buffer.isBuffer(uploadPublicObjectMock.mock.calls[0][0].body)).toBe(true);
+
+    const afterUpload = await request(app)
+      .get("/me/profile")
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(afterUpload.body.data.avatarUrl).toBe(avatarBefore);
+
+    const saved = await request(app)
+      .put("/me/profile")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ avatarUrl: response.body.data.avatarUrl });
+    expect(saved.status).toBe(200);
+    expect(saved.body.data.avatarUrl).toBe(response.body.data.avatarUrl);
   });
 
   it("rejeita arquivo maior que o limite", async () => {
@@ -182,26 +201,35 @@ describe("POST /me/profile/avatar", () => {
     expect(uploadPublicObjectMock.mock.calls[1][0].path).toBe(`${ownerId}.webp`);
     expect(uploadPublicObjectMock.mock.calls[1][0].upsert).toBe(true);
     expect(second.body.data.avatarUrl).not.toBe(first.body.data.avatarUrl);
+    expect(second.body.data.profile.avatarUrl).not.toBe(second.body.data.avatarUrl);
   });
 
-  it("remove o objeto anterior do Storage quando o path muda", async () => {
+  it("remove o objeto anterior do Storage quando o PUT troca o path", async () => {
     await query(`UPDATE profiles SET "avatarUrl" = $1 WHERE "userId" = $2`, [
       "https://cdn.test/storage/v1/object/public/avatars/arquivo-antigo.webp",
       ownerId,
     ]);
 
-    const response = await request(app)
+    const uploaded = await request(app)
       .post("/me/profile/avatar")
       .set("Authorization", `Bearer ${ownerToken}`)
       .attach("file", PNG_1x1, { filename: "nova.png", contentType: "image/png" });
 
-    expect(response.status).toBe(201);
+    expect(uploaded.status).toBe(201);
+    expect(removeObjectMock).not.toHaveBeenCalled();
+
+    const saved = await request(app)
+      .put("/me/profile")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ avatarUrl: uploaded.body.data.avatarUrl });
+
+    expect(saved.status).toBe(200);
     expect(removeObjectMock).toHaveBeenCalledWith("arquivo-antigo.webp");
   });
 
   it("devolve 502 quando o Supabase Storage falha", async () => {
     uploadPublicObjectMock.mockRejectedValueOnce(
-      new AppError(502, "STORAGE_ERROR", "Nao foi possivel salvar a foto de perfil. Tente novamente."),
+      new AppError(502, "STORAGE_ERROR", "Nao foi possivel salvar a imagem. Tente novamente."),
     );
 
     const response = await request(app)
@@ -220,5 +248,86 @@ describe("POST /me/profile/avatar", () => {
 
     expect(response.status).toBe(401);
     expect(uploadPublicObjectMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /me/profile/banner", () => {
+  const email = `banner-owner-${Date.now()}@demo.com`;
+  let token = "";
+  let userId = "";
+
+  beforeAll(async () => {
+    await query(`DELETE FROM users WHERE email = $1`, [email]);
+    const response = await request(app)
+      .post("/auth/register")
+      .send({ name: "Usuario Banner", email, password, confirmPassword: password });
+    expect(response.status).toBe(201);
+    token = response.body.data.accessToken;
+    userId = response.body.data.user.id;
+  });
+
+  afterAll(async () => {
+    await query(`DELETE FROM users WHERE email = $1`, [email]);
+  });
+
+  beforeEach(() => {
+    uploadPublicObjectMock.mockClear();
+    uploadPublicObjectMock.mockImplementation(async ({ path }) => ({
+      path,
+      publicUrl: `https://cdn.test/storage/v1/object/public/avatars/${path}`,
+    }));
+  });
+
+  it("Free recebe 402 customTheme e nao sobe o arquivo", async () => {
+    const response = await request(app)
+      .post("/me/profile/banner")
+      .set("Authorization", `Bearer ${token}`)
+      .attach("file", PNG_1x1, { filename: "capa.png", contentType: "image/png" });
+
+    expect(response.status).toBe(402);
+    expect(response.body.error.code).toBe("PLAN_FEATURE_LOCKED");
+    expect(response.body.error.details.entitlement).toBe("customTheme");
+    expect(uploadPublicObjectMock).not.toHaveBeenCalled();
+  });
+
+  it("Pro sobe o banner e so grava no clique de atualizar", async () => {
+    const checkout = await request(app)
+      .post("/billing/checkout")
+      .send({ email, password, plan: "PRO" });
+    expect(checkout.status).toBe(200);
+
+    const uploaded = await request(app)
+      .post("/me/profile/banner")
+      .set("Authorization", `Bearer ${token}`)
+      .attach("file", PNG_1x1, { filename: "capa.png", contentType: "image/png" });
+
+    expect(uploaded.status).toBe(201);
+    expect(uploaded.body.data.bannerUrl).toMatch(
+      new RegExp(`^https://cdn\\.test/storage/v1/object/public/avatars/${userId}-banner\\.webp\\?v=\\d+$`),
+    );
+    expect(uploadPublicObjectMock.mock.calls[0][0]).toMatchObject({
+      path: `${userId}-banner.webp`,
+      contentType: "image/webp",
+      upsert: true,
+    });
+
+    const before = await request(app).get("/me/profile").set("Authorization", `Bearer ${token}`);
+    expect(before.body.data.theme?.backgroundImage).toBeUndefined();
+
+    const saved = await request(app)
+      .put("/me/profile")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        theme: {
+          atmosphere: "claw",
+          backgroundImage: uploaded.body.data.bannerUrl,
+          overlay: 40,
+        },
+      });
+
+    expect(saved.status).toBe(200);
+    expect(saved.body.data.theme.backgroundImage).toBe(uploaded.body.data.bannerUrl);
+    expect(saved.body.data.theme.overlay).toBe(40);
+    expect(saved.body.data.theme.atmosphere).toBe("claw");
   });
 });

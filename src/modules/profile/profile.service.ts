@@ -5,20 +5,23 @@ import { AppError, badGateway, badRequest, conflict, forbidden, notFound } from 
 import { logger } from "../../lib/logger";
 import {
   avatarObjectPath,
+  bannerObjectPath,
   objectPathFromPublicUrl,
   removeObject,
   uploadPublicObject,
 } from "../../lib/storage";
-import { processAvatarImage, removeLocalAvatarIfOwned } from "../../lib/upload";
+import { processAvatarImage, processBannerImage, removeLocalAvatarIfOwned } from "../../lib/upload";
 import { isReservedUsername } from "../../lib/username";
 import { grantsAccess, resolveSubscription } from "../billing/billing.service";
 import {
   applyCountLimit,
+  assertCanUpdateTheme,
   entitlementsOf,
   filterBlocksForPlan,
   sanitizeThemeForPlan,
   showBrandingFor,
 } from "../billing/entitlements";
+import { sanitizeBlockContentForPlan } from "../blocks/block-look";
 import { mergeTheme, updateProfileSchema } from "./profile.schemas";
 
 export async function getProfileByUserId(userId: string) {
@@ -52,7 +55,10 @@ export async function getFullProfileByUserId(userId: string) {
     theme: sanitizeThemeForPlan(plan, profile.theme),
     plan,
     showBranding: showBrandingFor(plan),
-    blocks: filterBlocksForPlan(plan, blocks.map(mapBlock)),
+    blocks: filterBlocksForPlan(plan, blocks.map(mapBlock)).map((block) => ({
+      ...block,
+      content: sanitizeBlockContentForPlan(plan, block.type, block.content),
+    })),
     services: applyCountLimit(services, entitlements.maxServices),
     testimonials: applyCountLimit(testimonials, entitlements.maxTestimonials),
   };
@@ -103,13 +109,29 @@ export async function updateProfile(userId: string, input: z.infer<typeof update
   const { username, theme, ...rest } = input;
   const usernameData = username ? await resolveUsernameChange(profile, username) : {};
 
-  const nextTheme = theme !== undefined ? mergeTheme(profile.theme, theme) : profile.theme;
+  const subscription = await resolveSubscription(userId);
+  const plan = subscription?.plan ?? "FREE";
+  if (theme !== undefined) {
+    assertCanUpdateTheme(plan, theme as Record<string, unknown>);
+  }
+
+  const nextTheme = theme !== undefined ? mergeTheme(profile.theme, theme as Record<string, unknown>) : profile.theme;
+  const nextAvatarUrl = rest.avatarUrl !== undefined ? rest.avatarUrl : profile.avatarUrl;
+
+  if (rest.avatarUrl !== undefined && rest.avatarUrl !== profile.avatarUrl) {
+    const nextPath = objectPathFromPublicUrl(nextAvatarUrl);
+    const previousPath = objectPathFromPublicUrl(profile.avatarUrl);
+    if (previousPath && previousPath !== nextPath) {
+      await removeObject(previousPath);
+    }
+    removeLocalAvatarIfOwned(profile.avatarUrl);
+  }
 
   const next = {
     displayName: rest.displayName !== undefined ? rest.displayName : profile.displayName,
     headline: rest.headline !== undefined ? rest.headline : profile.headline,
     bio: rest.bio !== undefined ? rest.bio : profile.bio,
-    avatarUrl: rest.avatarUrl !== undefined ? rest.avatarUrl : profile.avatarUrl,
+    avatarUrl: nextAvatarUrl,
     location: rest.location !== undefined ? rest.location : profile.location,
     theme: nextTheme,
     username: (usernameData as { username?: string }).username ?? profile.username,
@@ -147,54 +169,55 @@ export async function updateProfile(userId: string, input: z.infer<typeof update
   return mapProfile(updated!);
 }
 
-export type AvatarUpload = {
+export type ImageUpload = {
   buffer: Buffer;
   mimetype: string;
   originalname: string;
   size: number;
 };
 
-async function replaceStoredAvatar(userId: string, previousUrl: string | null) {
-  const nextPath = avatarObjectPath(userId);
-  const previousPath = objectPathFromPublicUrl(previousUrl);
+export type AvatarUpload = ImageUpload;
 
-  if (previousPath && previousPath !== nextPath) {
-    await removeObject(previousPath);
-  }
-
-  removeLocalAvatarIfOwned(previousUrl);
-  return nextPath;
-}
-
-export async function updateAvatar(userId: string, file: AvatarUpload) {
-  const profile = await getProfileByUserId(userId);
-  const image = await processAvatarImage(file.buffer);
-  const objectPath = await replaceStoredAvatar(userId, profile.avatarUrl);
-
-  let stored;
+async function storeProcessedImage(userId: string, body: Buffer, path: string) {
   try {
-    stored = await uploadPublicObject({
-      path: objectPath,
-      body: image,
+    return await uploadPublicObject({
+      path,
+      body,
       contentType: "image/webp",
       upsert: true,
     });
   } catch (error) {
     if (error instanceof AppError) throw error;
-    logger.error("falha ao enviar avatar", {
+    logger.error("falha ao enviar imagem", {
       userId,
+      path,
       error: error instanceof Error ? error.message : String(error),
     });
-    throw badGateway("Nao foi possivel salvar a foto de perfil. Tente novamente.");
+    throw badGateway("Nao foi possivel salvar a imagem. Tente novamente.");
   }
+}
 
-  const avatarUrl = `${stored.publicUrl}?v=${Date.now()}`;
-  const updated = await queryOne<Profile>(
-    `UPDATE profiles SET "avatarUrl" = $1, "updatedAt" = NOW() WHERE id = $2 RETURNING *`,
-    [avatarUrl, profile.id],
-  );
+/**
+ * Sobe a foto para o Storage e devolve a URL.
+ * Nao grava no perfil — o front persiste no clique de atualizar (PUT /me/profile).
+ */
+export async function uploadAvatar(userId: string, file: ImageUpload) {
+  const image = await processAvatarImage(file.buffer);
+  const stored = await storeProcessedImage(userId, image, avatarObjectPath(userId));
+  return `${stored.publicUrl}?v=${Date.now()}`;
+}
 
-  return mapProfile(updated!);
+/**
+ * Sobe o banner para o Storage e devolve a URL.
+ * Nao grava theme/bloco — o front persiste no clique de atualizar
+ * (`theme.backgroundImage` ou `content.bannerUrl` do HERO).
+ */
+export async function uploadBanner(userId: string, file: ImageUpload) {
+  const subscription = await resolveSubscription(userId);
+  assertCanUpdateTheme(subscription?.plan ?? "FREE");
+  const image = await processBannerImage(file.buffer);
+  const stored = await storeProcessedImage(userId, image, bannerObjectPath(userId));
+  return `${stored.publicUrl}?v=${Date.now()}`;
 }
 
 export async function publishProfile(userId: string) {
@@ -273,7 +296,10 @@ export async function getPublicProfile(username: string) {
     theme: sanitizeThemeForPlan(plan, mapped.theme),
     plan,
     showBranding: showBrandingFor(plan),
-    blocks: filterBlocksForPlan(plan, blocks.map(mapBlock)),
+    blocks: filterBlocksForPlan(plan, blocks.map(mapBlock)).map((block) => ({
+      ...block,
+      content: sanitizeBlockContentForPlan(plan, block.type, block.content),
+    })),
     services: applyCountLimit(services, entitlements.maxServices),
     testimonials: applyCountLimit(testimonials, entitlements.maxTestimonials),
   };

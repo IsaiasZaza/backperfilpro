@@ -17,6 +17,41 @@ export function showBrandingFor(plan: Plan | null | undefined) {
   return !entitlementsOf(plan).removeBranding;
 }
 
+const THEME_KNOWN_KEYS = new Set([
+  "primaryColor",
+  "backgroundColor",
+  "textColor",
+  "buttonStyle",
+  "font",
+  "atmosphere",
+  "backgroundImage",
+  "overlay",
+]);
+
+/** Tema "de verdade": cores, atmosfera, imagem ou chave extra — nao `{}` / atmosphere none. */
+export function isCustomThemePatch(theme: Record<string, unknown> | null | undefined): boolean {
+  if (!theme || typeof theme !== "object") return false;
+
+  const atmosphere = theme.atmosphere;
+  if (typeof atmosphere === "string" && atmosphere !== "" && atmosphere !== "none") return true;
+
+  for (const key of ["primaryColor", "backgroundColor", "textColor"] as const) {
+    if (typeof theme[key] === "string" && theme[key].trim() !== "") return true;
+  }
+  if (typeof theme.buttonStyle === "string" && theme.buttonStyle.trim() !== "") return true;
+  if (typeof theme.font === "string" && theme.font.trim() !== "") return true;
+  if (typeof theme.backgroundImage === "string" && theme.backgroundImage.trim() !== "") return true;
+  if (typeof theme.overlay === "number" && theme.overlay > 0) return true;
+
+  for (const [key, value] of Object.entries(theme)) {
+    if (THEME_KNOWN_KEYS.has(key)) continue;
+    if (value == null || value === "") continue;
+    return true;
+  }
+
+  return false;
+}
+
 export function sanitizeThemeForPlan(plan: Plan, theme: Record<string, unknown>) {
   if (entitlementsOf(plan).customTheme) return theme;
   return {};
@@ -170,10 +205,14 @@ export function assertCanMutateIndexedItem(
   }
 }
 
-export function assertCanUpdateTheme(plan: Plan) {
-  if (!entitlementsOf(plan).customTheme) {
-    featureLocked(plan, "Temas e cores personalizados estao nos planos Pro e Premium.", {
-      entitlement: "customTheme",
-    });
-  }
+/**
+ * Gate de `customTheme` (tema da pagina + look/layout dos blocos).
+ * Sem `theme`, sempre bloqueia no Free. Com `theme`, so 402 se o patch for custom de verdade.
+ */
+export function assertCanUpdateTheme(plan: Plan, theme?: Record<string, unknown>) {
+  if (entitlementsOf(plan).customTheme) return;
+  if (theme !== undefined && !isCustomThemePatch(theme)) return;
+  featureLocked(plan, "Tema, fundo e aparencia visual estao nos planos Pro e Premium.", {
+    entitlement: "customTheme",
+  });
 }

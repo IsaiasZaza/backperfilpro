@@ -99,7 +99,7 @@ export type Entitlements = {
   maxServices: number | null;
   maxTestimonials: number | null;
   allowedBlockTypes: string[] | null;
-  customTheme: boolean;
+  customTheme: boolean; // tema da página + look/layout dos blocos + banner. Free = false. Pro e Premium = true.
   removeBranding: boolean;
   prioritySupport: boolean;
 };
@@ -136,7 +136,7 @@ Catálogo atual (a API é a fonte da verdade; não hardcode preço no botão):
 | Plano | Preço | Destaque de produto |
 |---|---|---|
 | **Free** | R$ 0 | página pública, 4 blocos, 2 serviços, 2 depoimentos, marca PerfilPro |
-| **Pro** | R$ 20,00/mês | ilimitado, todos os blocos, temas |
+| **Pro** | R$ 20,00/mês | ilimitado, todos os blocos, `customTheme: true` (tema + look + banner) |
 | **Premium** | R$ 39,00/mês | tudo do Pro + sem marca PerfilPro + suporte prioritário |
 
 `grantsAccess` é `true` quando o status é `ACTIVE`, `TRIALING` (legado) ou `PAST_DUE`.
@@ -411,7 +411,9 @@ Se o dono perder o plano, essa rota vira 404. Não mostre “assinatura expirada
 
 - [ ] Banner de trial
 - [ ] Banner de cancelamento agendado
-- [ ] 402 em qualquer fetch → logout suave + `/planos`
+- [ ] 402 `PLAN_FEATURE_LOCKED` / `PLAN_LIMIT_REACHED` → modal de upgrade (`details.entitlement`, ex. `customTheme`)
+- [ ] 402 `SUBSCRIPTION_REQUIRED` → `/planos` (não misture com o caso acima)
+- [ ] Editor de Aparência / banner só se `customTheme === true`
 
 **Assinatura**
 
@@ -485,6 +487,7 @@ Quando as chaves existirem, `checkoutUrl` aponta para a Stripe de verdade. O fro
 | Status | code | Onde | Ação |
 |---|---|---|---|
 | 401 | `INVALID_CREDENTIALS` | login / checkout | senha errada |
+| 402 | `PLAN_LIMIT_REACHED` / `PLAN_FEATURE_LOCKED` | builder | modal upgrade. `customTheme` cobre tema, fundo, banner e look dos blocos. **Não** é `SUBSCRIPTION_REQUIRED`. |
 | 402 | `SUBSCRIPTION_REQUIRED` | login, refresh, `/me/*` | tela de planos / checkout |
 | 409 | `EMAIL_ALREADY_USED` | register | ir para login |
 | 409 | `ALREADY_SUBSCRIBED` | checkout | ir para o painel |

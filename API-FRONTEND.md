@@ -159,22 +159,51 @@ Fluxo sugerido no FE:
 | POST | `/me/profile/publish` | Publicar página |
 | POST | `/me/profile/unpublish` | Voltar para rascunho |
 | GET | `/me/profile/preview` | Preview (mesmo shape da pública, inclui ocultos) |
-| POST | `/me/profile/avatar` | Upload multipart campo `file` → Supabase Storage |
+| POST | `/me/profile/avatar` | Upload da foto (multipart `file`) → URL. **Não grava no banco.** |
+| POST | `/me/profile/banner` | Upload do banner (multipart `file`) → URL. **Não grava no banco.** Pro/Premium. |
 
-Upload (não defina `Content-Type` — o browser coloca o boundary):
+Foto e banner usam a **mesma lógica**: o upload só manda o arquivo ao Storage e devolve a URL. O banco só muda no clique de **Atualizar**.
 
 ```ts
 const form = new FormData();
-form.append("file", arquivo); // File do input
+form.append("file", arquivo);
 
-const data = await api<{ avatarUrl: string; profile: Profile }>(
+const { avatarUrl } = await api<{ avatarUrl: string; profile: Profile }>(
   "/me/profile/avatar",
-  { method: "POST", body: form, headers: {} }, // evita application/json
+  { method: "POST", body: form, headers: {} },
 );
-// use data.avatarUrl no <img>
+// preview local com avatarUrl — o GET /me/profile ainda tem a foto antiga
+
+await api("/me/profile", {
+  method: "PUT",
+  body: JSON.stringify({ avatarUrl }), // agora sim grava
+});
 ```
 
-Se o helper `api()` sempre manda `Content-Type: application/json`, faça um `fetch` separado para o avatar.
+Banner (Pro/Premium, `customTheme === true`):
+
+```ts
+const { bannerUrl } = await api<{ bannerUrl: string }>(
+  "/me/profile/banner",
+  { method: "POST", body: form, headers: {} },
+);
+
+// fundo da página
+await api("/me/profile", {
+  method: "PUT",
+  body: JSON.stringify({
+    theme: { backgroundImage: bannerUrl, overlay: 40, atmosphere: "claw" },
+  }),
+});
+
+// ou capa do HERO
+await api(`/me/profile/blocks/${heroId}`, {
+  method: "PATCH",
+  body: JSON.stringify({ content: { ...heroContent, bannerUrl, layout: "banner" } }),
+});
+```
+
+Se o helper `api()` sempre manda `Content-Type: application/json`, faça um `fetch` separado para os uploads.
 
 Exemplo PUT:
 ```json
@@ -184,22 +213,29 @@ Exemplo PUT:
   "headline": "Lash Designer",
   "bio": "Atendo com hora marcada",
   "location": "Brasília - DF",
+  "avatarUrl": "https://..../userId.webp?v=123",
   "theme": {
     "primaryColor": "#7C3AED",
     "buttonStyle": "pill",
     "font": "sans",
-    "atmosphere": "claw"
+    "atmosphere": "claw",
+    "backgroundImage": "https://..../userId-banner.webp?v=123",
+    "overlay": 40
   }
 }
 ```
+
+`theme` faz merge raso: o que vier substitui; o que não vier **mantém**. `atmosphere` inválido vira `"none"`. `overlay` é inteiro 0–80 e só grava junto de `backgroundImage`.
+
+Free: PUT com tema de verdade (cor, atmosfera, imagem) → **402** `PLAN_FEATURE_LOCKED` / `customTheme`. PUT sem `theme` ou `theme: {}` → 200 e não apaga o tema antigo. `GET /p/:username` no Free devolve `theme: {}` (não vaza `backgroundImage`).
 
 ### Regras
 - No cadastro já nasce um Profile `DRAFT` com username temporário `user-...`
 - Username livre enquanto `DRAFT`
 - Depois de `PUBLISHED`, username pode mudar **no máximo 1x**
 - Publicar exige: username definitivo (não `user-*`), `displayName` e ≥ 1 bloco visível
-- Foto de perfil: envie o arquivo em `POST /me/profile/avatar` (multipart, campo `file`). JPEG, PNG ou WEBP, até 1 MB. O back converte para WEBP 256x256, grava no Supabase Storage e devolve `avatarUrl` — use esse valor no `<img>`.
-- `PUT /me/profile` ainda aceita `avatarUrl` (URL `https`) para não quebrar perfis/fronts antigos. URLs do Google Drive (`/file/d/.../view`) continuam virando `{APP_URL}/media/drive/{id}`.
+- Foto: JPEG, PNG ou WEBP, até 1 MB. O back converte para WEBP 256x256 em `{userId}.webp` e devolve `avatarUrl`. Persista no PUT.
+- Banner: mesma validação, WEBP 1600x900 em `{userId}-banner.webp`. Persista em `theme.backgroundImage` ou `content.bannerUrl` do HERO. Não crie outro upload.
 - Não coloque `SUPABASE_SERVICE_ROLE_KEY` no frontend. O upload passa só pela API.
 
 ---
@@ -229,14 +265,20 @@ Exemplo PUT:
 
 | type | content |
 |---|---|
-| `HERO` | `{ name?, headline?, bio?, avatarUrl?, location? }` |
-| `CTA_BUTTON` | `{ label, url, style: "primary"\|"secondary"\|"outline" }` |
-| `LINK_BUTTON` | `{ label, url, icon? }` |
+| `HERO` | `{ name?, headline?, bio?, avatarUrl?, location?, layout?: "stack"\|"split"\|"banner", bannerUrl? }` |
+| `CTA_BUTTON` | `{ label, url?, style: "primary"\|"secondary"\|"outline" }` |
+| `LINK_BUTTON` | `{ label, url?, icon?, subtitle?, thumbnailUrl?, layout?: "row"\|"cover"\|"minimal", badge? }` |
 | `WHATSAPP` | `{ phone, message?, label? }` (phone só dígitos c/ DDI) |
-| `SOCIAL` | `{ items: [{ network, url }] }` — network: `instagram\|facebook\|tiktok\|youtube\|linkedin\|x\|site` |
-| `SERVICES` | `{ heading }` (itens em `/services`) |
-| `TESTIMONIALS` | `{ heading }` (itens em `/testimonials`) |
-| `LOCATION` | `{ address, mapsUrl?, label? }` |
+| `SOCIAL` | `{ items: [{ network, url, label? }], layout?: "icons"\|"buttons", style?: "brand"\|"mono"\|"ghost" }` |
+| `SERVICES` | `{ heading?, layout?: "list"\|"cards" }` (itens em `/services`) |
+| `TESTIMONIALS` | `{ heading?, layout?: "stack"\|"quote" }` (itens em `/testimonials`) |
+| `LOCATION` | `{ address, mapsUrl?, url?, label?, layout?: "card"\|"map" }` |
+
+Look comum (todo bloco, Pro/Premium via `customTheme`): `textColor`, `backgroundColor`, `borderColor`, `align`, `width`, `pulse`, `*FontSize`, `avatarSize`, `avatarShape`, `radius`, `padding`, `shadow` (`none`\|`soft`\|`hard`\|`glow`), `hover` (`none`\|`lift`\|`scale`\|`glow`), `surface` (`clean`\|`card`\|`glass`\|`neon`\|`comic`).
+
+No Free o back **salva textos/urls** e **descarta** o visual pago (`surface`, `hover`, `layout` visual, `bannerUrl`, `thumbnailUrl`, etc.). Se o PATCH só muda visual → 402 `customTheme`. Se mistura nome + visual → 200, nome gravado, visual fora. Enum inválido é ignorado (não 500).
+
+`GET /p/:username` no Free: `theme: {}` e sem as chaves visuais pagas, mesmo com lixo antigo no JSON. Cancelou Pro: a página continua no ar, só o visual some.
 
 ### Reordenar (drag and drop)
 ```json
@@ -356,6 +398,7 @@ Shape:
 | Status | code | Significado |
 |---|---|---|
 | 401 | `UNAUTHORIZED` / `INVALID_CREDENTIALS` | Sem login / senha errada |
+| 402 | `PLAN_LIMIT_REACHED` / `PLAN_FEATURE_LOCKED` | Limite do plano ou visual/tema pago (`details.entitlement`) |
 | 402 | `SUBSCRIPTION_REQUIRED` | Sem plano ativo (login, refresh ou `/me/*`) |
 | 404 | `PAGE_NOT_FOUND` | Username inexistente, DRAFT ou dono sem plano |
 | 409 | `USERNAME_TAKEN` / `EMAIL_ALREADY_USED` / `ALREADY_SUBSCRIBED` | Conflito |

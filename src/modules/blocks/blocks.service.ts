@@ -1,9 +1,16 @@
 import type { z } from "zod";
 import { query, queryOne, withTransaction } from "../../db/client";
-import type { Block } from "../../db/types";
+import type { Block, Plan } from "../../db/types";
 import { notFound } from "../../lib/errors";
 import { resolveSubscription } from "../billing/billing.service";
-import { assertCanCreateBlock, assertCanMutateBlock, filterBlocksForPlan } from "../billing/entitlements";
+import {
+  assertCanCreateBlock,
+  assertCanMutateBlock,
+  assertCanUpdateTheme,
+  entitlementsOf,
+  filterBlocksForPlan,
+} from "../billing/entitlements";
+import { isPaidLookOnlyPatch, stripPaidBlockLook } from "./block-look";
 import type { createBlockSchema, reorderBlocksSchema, updateBlockSchema } from "./blocks.schemas";
 import { parseBlockContent } from "./blocks.schemas";
 
@@ -17,9 +24,23 @@ function mapBlock(row: Block): Block {
   };
 }
 
-async function planOf(userId: string) {
+async function planOf(userId: string): Promise<Plan> {
   const subscription = await resolveSubscription(userId);
   return subscription?.plan ?? "FREE";
+}
+
+function contentForPlanWrite(
+  plan: Plan,
+  type: Block["type"],
+  previous: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+  extraFieldsChanged = false,
+) {
+  if (entitlementsOf(plan).customTheme) return incoming;
+  if (!extraFieldsChanged && isPaidLookOnlyPatch(type, previous, incoming)) {
+    assertCanUpdateTheme(plan);
+  }
+  return stripPaidBlockLook(type, incoming);
 }
 
 export async function listBlocks(profileId: string) {
@@ -53,7 +74,8 @@ export async function createBlock(
   const existing = await listBlocks(profileId);
   assertCanCreateBlock(plan, input.type, filterBlocksForPlan(plan, existing).length);
 
-  const content = parseBlockContent(input.type, input.content);
+  const parsed = parseBlockContent(input.type, input.content);
+  const content = contentForPlanWrite(plan, input.type, {}, parsed);
   const sortOrder = input.sortOrder ?? (await nextSortOrder(profileId));
 
   const block = await queryOne<Block>(
@@ -89,9 +111,18 @@ export async function updateBlock(
   const title = input.title !== undefined ? input.title : block.title;
   const sortOrder = input.sortOrder !== undefined ? input.sortOrder : block.sortOrder;
   const isVisible = input.isVisible !== undefined ? input.isVisible : block.isVisible;
+  const extraFieldsChanged =
+    input.title !== undefined || input.sortOrder !== undefined || input.isVisible !== undefined;
+
   const content =
     input.content !== undefined
-      ? parseBlockContent(block.type, input.content)
+      ? contentForPlanWrite(
+          plan,
+          block.type,
+          block.content,
+          parseBlockContent(block.type, input.content),
+          extraFieldsChanged,
+        )
       : block.content;
 
   const updated = await queryOne<Block>(

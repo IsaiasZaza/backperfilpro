@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { urlSchema } from "../../lib/sanitize";
+import { parsePublicHttpUrl, urlSchema } from "../../lib/sanitize";
 import { USERNAME_REGEX } from "../../lib/username";
 
 export const usernameSchema = z
@@ -95,6 +95,24 @@ function normalizeFont(value: unknown) {
   return FONT_ALIASES[raw.trim().toLowerCase()];
 }
 
+function normalizeBackgroundImage(value: unknown) {
+  return parsePublicHttpUrl(value);
+}
+
+/** Inteiro 0–80. Invalido → ignore (undefined). Vazio → null. */
+function normalizeOverlay(value: unknown): number | null | undefined {
+  const raw = blankToNull(value);
+  if (raw === null) return null;
+  const n =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string"
+        ? Number(raw.trim())
+        : NaN;
+  if (!Number.isInteger(n) || n < 0 || n > 80) return undefined;
+  return n;
+}
+
 /** Converte string vazia / null em ausencia de campo, para o PUT do editor nao quebrar. */
 function omitEmptyStrings(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
@@ -123,6 +141,16 @@ function normalizeThemeInput(value: unknown) {
   if ("buttonStyle" in raw) next.buttonStyle = normalizeButtonStyle(raw.buttonStyle);
   if ("font" in raw) next.font = normalizeFont(raw.font);
   if ("atmosphere" in raw) next.atmosphere = normalizeAtmosphere(raw.atmosphere);
+  if ("backgroundImage" in raw) {
+    const image = normalizeBackgroundImage(raw.backgroundImage);
+    if (image === undefined) delete next.backgroundImage;
+    else next.backgroundImage = image;
+  }
+  if ("overlay" in raw) {
+    const overlay = normalizeOverlay(raw.overlay);
+    if (overlay === undefined) delete next.overlay;
+    else next.overlay = overlay;
+  }
 
   return next;
 }
@@ -143,6 +171,8 @@ export const themeSchema = z.preprocess(
       buttonStyle: z.enum(["rounded", "pill", "square"]).nullish(),
       font: z.enum(["sans", "serif", "mono"]).nullish(),
       atmosphere: z.enum(ATMOSPHERE_VALUES).nullish(),
+      backgroundImage: z.string().max(2048).nullish(),
+      overlay: z.number().int().min(0).max(80).nullish(),
     })
     .passthrough(),
 );
@@ -187,6 +217,10 @@ export function mergeTheme(
     if (value !== undefined) {
       next[key] = value;
     }
+  }
+
+  if (!next.backgroundImage) {
+    delete next.overlay;
   }
 
   return next;

@@ -93,8 +93,9 @@ describe("FREE -> PAID -> CANCEL -> FREE", () => {
       .send({
         theme: { atmosphere: "cosmic", primaryColor: "", buttonStyle: "" },
       });
-    expect(theme.status).toBe(200);
-    expect(theme.body.data.theme.atmosphere).toBe("cosmic");
+    expect(theme.status).toBe(402);
+    expect(theme.body.error.code).toBe("PLAN_FEATURE_LOCKED");
+    expect(theme.body.error.details.entitlement).toBe("customTheme");
 
     const mixed = await request(app)
       .put("/me/profile")
@@ -226,17 +227,14 @@ describe("FREE -> PAID -> CANCEL -> FREE", () => {
     );
     expect(storedTheme[0]?.theme).toMatchObject({ atmosphere: "cosmic" });
 
-    const clearAtmosphere = await request(app)
+    const lockedTheme = await request(app)
       .put("/me/profile")
       .set(auth())
-      .send({ theme: { atmosphere: "" } });
-    expect(clearAtmosphere.status).toBe(200);
-    expect(clearAtmosphere.body.data.theme.atmosphere).toBe("none");
-
-    await request(app)
-      .put("/me/profile")
-      .set(auth())
-      .send({ theme: { atmosphere: "cosmic" } });
+      .send({ theme: { atmosphere: "claw", backgroundImage: "https://example.com/a.jpg" } });
+    expect(lockedTheme.status).toBe(402);
+    expect(lockedTheme.body.error.code).toBe("PLAN_FEATURE_LOCKED");
+    expect(lockedTheme.body.error.details.entitlement).toBe("customTheme");
+    expect(lockedTheme.body.error.details.suggestedPlan).toBe("PRO");
 
     const location = await request(app)
       .patch(`/me/profile/blocks/${locationBlockId}`)
@@ -339,6 +337,17 @@ describe("webhooks Stripe", () => {
   });
 
   it("evento fora de ordem nao reativa plano pago", async () => {
+    await query(
+      `UPDATE subscriptions
+       SET plan = 'PREMIUM',
+           status = 'ACTIVE',
+           "stripeSubscriptionId" = 'sub_order',
+           "lastStripeEventCreated" = 500,
+           "cancelAtPeriodEnd" = FALSE
+       WHERE "userId" = $1`,
+      [userId],
+    );
+
     const canceled = fakeSubscriptionEvent({
       id: `evt_cancel_${stamp}`,
       created: 2_000,
