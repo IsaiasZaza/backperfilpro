@@ -99,7 +99,7 @@ async function main() {
     {
       type: "TESTIMONIALS",
       title: "Depoimentos",
-      content: { heading: "O que dizem sobre mim" },
+      content: { heading: "O que dizem sobre mim", layout: "stack" },
       sortOrder: 5,
     },
     {
@@ -152,10 +152,10 @@ async function main() {
   }
 
   await query(
-    `INSERT INTO testimonials ("profileId", "authorName", text, rating, "sortOrder")
+    `INSERT INTO testimonials ("profileId", "authorName", text, rating, "sortOrder", layout, padding, spacing)
      VALUES
-       ($1, 'Juliana Prado', 'Atendimento impecavel e resultado lindo demais! Ja virei cliente fixa.', 5, 0),
-       ($1, 'Carol Menezes', 'A Maria tem uma mao leve, dormi durante todo o procedimento. Recomendo!', 5, 1)`,
+       ($1, 'Juliana R.', 'Atendimento impecavel e resultado lindo demais! Ja virei cliente fixa.', 5, 0, 'stack', 'md', 'md'),
+       ($1, 'Camila S.', 'A Maria tem uma mao leve, dormi durante todo o procedimento. Recomendo!', 5, 1, 'quote', NULL, 'lg')`,
     [profileId],
   );
 

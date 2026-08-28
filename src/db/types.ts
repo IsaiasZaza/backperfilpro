@@ -94,6 +94,10 @@ export type ServiceItem = {
   updatedAt: Date;
 };
 
+export type TestimonialsLayout = "stack" | "quote";
+export type BlockPadding = "sm" | "md" | "lg";
+export type TestimonialSpacing = "sm" | "md" | "lg";
+
 export type Testimonial = {
   id: string;
   profileId: string;
@@ -102,6 +106,9 @@ export type Testimonial = {
   rating: number;
   sortOrder: number;
   isVisible: boolean;
+  layout: TestimonialsLayout | null;
+  padding: BlockPadding | null;
+  spacing: TestimonialSpacing | null;
   createdAt: Date;
   updatedAt: Date;
 };

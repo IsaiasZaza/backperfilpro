@@ -172,6 +172,18 @@ export const blockContentSchemas = {
     .object({
       heading: z.string().trim().max(80).default("Depoimentos"),
       layout: optionalEnum(["stack", "quote"]),
+      itemStyles: z
+        .record(
+          z.string(),
+          z
+            .object({
+              layout: optionalEnum(["stack", "quote"]),
+              padding: optionalEnum(["sm", "md", "lg"]),
+              spacing: optionalEnum(["sm", "md", "lg"]),
+            })
+            .passthrough(),
+        )
+        .optional(),
       ...blockLookFields,
     })
     .passthrough(),

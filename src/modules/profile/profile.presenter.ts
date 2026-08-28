@@ -39,6 +39,9 @@ export const presentTestimonial = (testimonial: Testimonial) => ({
   rating: testimonial.rating,
   sortOrder: testimonial.sortOrder,
   isVisible: testimonial.isVisible,
+  layout: testimonial.layout ?? null,
+  padding: testimonial.padding ?? null,
+  spacing: testimonial.spacing ?? null,
 });
 
 /** Shape enxuto do perfil usado no painel do usuario logado. */

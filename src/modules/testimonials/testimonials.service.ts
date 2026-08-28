@@ -50,8 +50,11 @@ export async function createTestimonial(
   );
 
   const testimonial = await queryOne<Testimonial>(
-    `INSERT INTO testimonials ("profileId", "authorName", text, rating, "sortOrder", "isVisible")
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO testimonials (
+       "profileId", "authorName", text, rating, "sortOrder", "isVisible",
+       layout, padding, spacing
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
     [
       profileId,
@@ -60,6 +63,9 @@ export async function createTestimonial(
       input.rating,
       input.sortOrder ?? (last ? last.sortOrder + 1 : 0),
       input.isVisible ?? true,
+      input.layout ?? null,
+      input.padding ?? null,
+      input.spacing ?? null,
     ],
   );
 
@@ -91,8 +97,11 @@ export async function updateTestimonial(
        rating = $3,
        "sortOrder" = $4,
        "isVisible" = $5,
+       layout = $6,
+       padding = $7,
+       spacing = $8,
        "updatedAt" = NOW()
-     WHERE id = $6
+     WHERE id = $9
      RETURNING *`,
     [
       input.authorName ?? testimonial.authorName,
@@ -100,6 +109,9 @@ export async function updateTestimonial(
       input.rating ?? testimonial.rating,
       input.sortOrder ?? testimonial.sortOrder,
       input.isVisible ?? testimonial.isVisible,
+      "layout" in input ? (input.layout ?? null) : testimonial.layout,
+      "padding" in input ? (input.padding ?? null) : testimonial.padding,
+      "spacing" in input ? (input.spacing ?? null) : testimonial.spacing,
       testimonial.id,
     ],
   );
